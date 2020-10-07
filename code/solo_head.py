@@ -73,7 +73,7 @@ class SOLOHead(nn.Module):
     
     self.ins_head = nn.ModuleList()
     for _ in range(stacked_convs):
-      self.cate_head.append(
+      self.ins_head.append(
         nn.Conv2d(in_channels+2, seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
         nn.nn.GroupNorm(num_groups,seg_feat_channels),
         nn.ReLU(True))
