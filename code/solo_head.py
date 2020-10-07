@@ -126,8 +126,16 @@ class SOLOHead(nn.Module):
     # Output:
     # new_fpn_list, list, len(FPN), stride[8,8,16,32,32]
     def NewFPN(self, fpn_feat_list):
-        pass
-
+        new_fpn_list=[
+                [],[],[],[],[]
+                ]
+        new_fpn_list[0]=torch.nn.functional.interpolate(fpn_feat_list[0],scale_factor=1/2)
+        new_fpn_list[1]=fpn_feat_list[1]
+        new_fpn_list[2]=fpn_feat_list[2]
+        new_fpn_list[3]=fpn_feat_list[3]
+        last_layer=((25,34))
+        new_fpn_list[4]=torch.nn.functional.interpolate(fpn_feat_list[4],size=(last_layer[0],last_layer[1]))
+        return new_fpn_list
 
     # This function forward a single level of fpn_featmap through the network
     # Input:
