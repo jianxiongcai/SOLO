@@ -80,7 +80,8 @@ class SOLOHead(nn.Module):
       
     self.ins_out_list = nn.ModuleList()
     self.ins_out_list.append(
-        nn.Sigmoid(Conv2d(seg_feat_channels, list(map(lambda x:pow(x,2), num_grids)), kernel_size=(1, 1), padding=1, bias=True))
+            nn.Conv2d(seg_feat_channels, list(map(lambda x:pow(x,2), num_grids)), kernel_size=(1, 1), padding=1, bias=True),
+            nn.Sigmoid()
         )
 
     # This function initialize weights for head network
