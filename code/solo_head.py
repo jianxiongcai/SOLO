@@ -61,28 +61,28 @@ class SOLOHead(nn.Module):
         # self.ins_out_list is nn.ModuleList len(self.seg_num_grids) out-layers of conv2d, one for each fpn_feat
     def _init_layers(self):
         ## TODO initialize layers: stack intermediate layer and output layer
-    num_groups = 32
-    self.cate_head = nn.ModuleList()       
-    for _ in range(stacked_convs):
-      self.cate_head.append(
-        nn.Conv2d(in_channels, seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
-        nn.nn.GroupNorm(num_groups,seg_feat_channels),
-        nn.ReLU(True))
-      
-    self.cate_out=nn.Sigmoid(nn.Conv2d(seg_feat_channels, cate_out_channels, kernel_size=(3, 3), padding=1, bias=True)) # SxSx(4-1)
-    
-    self.ins_head = nn.ModuleList()
-    for _ in range(stacked_convs):
-      self.ins_head.append(
-        nn.Conv2d(in_channels+2, seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
-        nn.nn.GroupNorm(num_groups,seg_feat_channels),
-        nn.ReLU(True))
-      
-    self.ins_out_list = nn.ModuleList()
-    self.ins_out_list.append(
-            nn.Conv2d(seg_feat_channels, list(map(lambda x:pow(x,2), num_grids)), kernel_size=(1, 1), padding=1, bias=True),
-            nn.Sigmoid()
-        )
+        num_groups = 32
+        self.cate_head = nn.ModuleList()       
+        for _ in range(self.stacked_convs):
+          self.cate_head.append(
+            nn.Conv2d(self.in_channels, self.seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
+            nn.nn.GroupNorm(num_groups,self.seg_feat_channels),
+            nn.ReLU(True))
+          
+        self.cate_out=nn.Sigmoid(nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, kernel_size=(3, 3), padding=1, bias=True)) # SxSx(4-1)
+        
+        self.ins_head = nn.ModuleList()
+        for _ in range(self.stacked_convs):
+          self.ins_head.append(
+            nn.Conv2d(self.in_channels+2, self.seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
+            nn.nn.GroupNorm(num_groups,self.seg_feat_channels),
+            nn.ReLU(True))
+          
+        self.ins_out_list = nn.ModuleList()
+        self.ins_out_list.append(
+                nn.Conv2d(self.seg_feat_channels, list(map(lambda x:pow(x,2), self.num_grids)), kernel_size=(1, 1), padding=1, bias=True),
+                nn.Sigmoid()
+            )
 
     # This function initialize weights for head network
     def _init_weights(self):
