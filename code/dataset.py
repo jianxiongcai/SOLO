@@ -49,7 +49,7 @@ class BuildDataset(torch.utils.data.Dataset):
 
         # annotation
         # label: start counting from 0
-        label = torch.tensor(self.labels_all[index], dtype=torch.long) - 1
+        label = torch.tensor(self.labels_all[index], dtype=torch.long)
         # collect all object mask for the image
         mask_offset_s = self.mask_offset[index]
         mask_list = []
@@ -267,13 +267,13 @@ if __name__ == '__main__':
             # object mask: assign color with class label
             for obj_i, obj_mask in enumerate(mask[i], 0):
                 obj_label = label[i][obj_i]
-                if obj_label == 0:                  # car
+                if obj_label == 1:                  # car
                     color_channel = 2
-                elif obj_label == 1:                # people
+                elif obj_label == 2:                # people
                     color_channel = 1
-                elif obj_label == 2:
+                elif obj_label == 3:
                     color_channel = 0
-                else:
+                else:                               # dataset can not handle
                     raise RuntimeError("[ERROR] obj_label = {}".format(obj_label))
                 img_vis[:, :, color_channel] = img_vis[:, :, color_channel] + (1-alpha) * obj_mask.cpu().numpy()
 
