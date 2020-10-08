@@ -187,16 +187,17 @@ class BuildDataLoader(torch.utils.data.DataLoader):
 ## Visualize debugging
 if __name__ == '__main__':
     # file path and make a list
-    # todo (jianxiong): change this back before submitting
-    # imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
-    # masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
-    # labels_path = './data/hw3_mycocodata_labels_comp_zlib.npy'
-    # bboxes_path = './data/hw3_mycocodata_bboxes_comp_zlib.npy'
+#     todo (jianxiong): change this back before submitting
+#    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
+#    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
+#    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
+#    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
     imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
     masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
     labels_path = '/workspace/data/hw3_mycocodata_labels_comp_zlib.npy'
     bboxes_path = '/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy'
+    
     os.makedirs("testfig", exist_ok=True)
 
     paths = [imgs_path, masks_path, labels_path, bboxes_path]

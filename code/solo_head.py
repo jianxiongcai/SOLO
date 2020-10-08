@@ -8,25 +8,25 @@ from functools import partial
 
 class SOLOHead(nn.Module):
     def __init__(self,
-                 num_classes,
-                 in_channels=256,
-                 seg_feat_channels=256,
-                 stacked_convs=7,
-                 strides=[8, 8, 16, 32, 32],
-                 scale_ranges=((1, 96), (48, 192), (96, 384), (192, 768), (384, 2048)),
-                 epsilon=0.2,
-                 num_grids=[40, 36, 24, 16, 12],
-                 cate_down_pos=0,
-                 with_deform=False,
-                 mask_loss_cfg=dict(weight=3),
-                 cate_loss_cfg=dict(gamma=2,
-                                alpha=0.25,
-                                weight=1),
-                 postprocess_cfg=dict(cate_thresh=0.2,
-                                      ins_thresh=0.5,
-                                      pre_NMS_num=50,
-                                      keep_instance=5,
-                                      IoU_thresh=0.5)):
+        num_classes,
+        in_channels=256,
+        seg_feat_channels=256,
+        stacked_convs=7,
+        strides=[8, 8, 16, 32, 32],
+        scale_ranges=((1, 96), (48, 192), (96, 384), (192, 768), (384, 2048)),
+        epsilon=0.2,
+        num_grids=[40, 36, 24, 16, 12],
+        cate_down_pos=0,
+        with_deform=False,
+        mask_loss_cfg=dict(weight=3),
+        cate_loss_cfg=dict(gamma=2,
+                        alpha=0.25,
+                        weight=1),
+        postprocess_cfg=dict(cate_thresh=0.2,
+                              ins_thresh=0.5,
+                              pre_NMS_num=50,
+                              keep_instance=5,
+                              IoU_thresh=0.5)):
         super(SOLOHead, self).__init__()
         self.num_classes = num_classes
         self.seg_num_grids = num_grids
@@ -61,18 +61,37 @@ class SOLOHead(nn.Module):
         # self.ins_out_list is nn.ModuleList len(self.seg_num_grids) out-layers of conv2d, one for each fpn_feat
     def _init_layers(self):
         ## TODO initialize layers: stack intermediate layer and output layer
-        # define groupnorm
-        num_groups = 32
-        # initial the two branch head modulelist
-        self.cate_head = nn.ModuleList()
-        self.ins_head = nn.ModuleList()
-
-        pass
+    num_groups = 32
+    self.cate_head = nn.ModuleList()       
+    for _ in range(stacked_convs):
+      self.cate_head.append(
+        nn.Conv2d(in_channels, seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
+        nn.nn.GroupNorm(num_groups,seg_feat_channels),
+        nn.ReLU(True))
+      
+    self.cate_out=nn.Sigmoid(nn.Conv2d(seg_feat_channels, cate_out_channels, kernel_size=(3, 3), padding=1, bias=True)) # SxSx(4-1)
+    
+    self.ins_head = nn.ModuleList()
+    for _ in range(stacked_convs):
+      self.ins_head.append(
+        nn.Conv2d(in_channels+2, seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
+        nn.nn.GroupNorm(num_groups,seg_feat_channels),
+        nn.ReLU(True))
+      
+    self.ins_out_list = nn.ModuleList()
+    self.ins_out_list.append(
+            nn.Conv2d(seg_feat_channels, list(map(lambda x:pow(x,2), num_grids)), kernel_size=(1, 1), padding=1, bias=True),
+            nn.Sigmoid()
+        )
 
     # This function initialize weights for head network
     def _init_weights(self):
         ## TODO: initialize the weights
-        pass
+      for m in self.modules():
+        if isinstance(m, nn.Conv2d):
+          m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
+          # m.bias.data.fill_(0)
+          m.bias.data.zero_()
 
 
     # Forward function should forward every levels in the FPN.
@@ -107,8 +126,16 @@ class SOLOHead(nn.Module):
     # Output:
     # new_fpn_list, list, len(FPN), stride[8,8,16,32,32]
     def NewFPN(self, fpn_feat_list):
-        pass
-
+        new_fpn_list=[
+                [],[],[],[],[]
+                ]
+        new_fpn_list[0]=torch.nn.functional.interpolate(fpn_feat_list[0],scale_factor=1/2)
+        new_fpn_list[1]=fpn_feat_list[1]
+        new_fpn_list[2]=fpn_feat_list[2]
+        new_fpn_list[3]=fpn_feat_list[3]
+        last_layer=((25,34))
+        new_fpn_list[4]=torch.nn.functional.interpolate(fpn_feat_list[4],size=(last_layer[0],last_layer[1]))
+        return new_fpn_list
 
     # This function forward a single level of fpn_featmap through the network
     # Input:
@@ -211,20 +238,20 @@ class SOLOHead(nn.Module):
         # ins_gts_list: list, len(bz), list, len(fpn), (S^2, 2H_f, 2W_f)
         # ins_ind_gts_list: list, len(bz), list, len(fpn), (S^2,)
         # cate_gts_list: list, len(bz), list, len(fpn), (S, S), {1,2,3}
-    def target(self,
-               ins_pred_list,
-               bbox_list,
-               label_list,
-               mask_list):
-        # TODO: use MultiApply to compute ins_gts_list, ins_ind_gts_list, cate_gts_list. Parallel w.r.t. img mini-batch
-        # remember, you want to construct target of the same resolution as prediction output in training
-
-        # check flag
-        assert ins_gts_list[0][1].shape = (self.seg_num_grids[1]**2, 200, 272)
-        assert ins_ind_gts_list[0][1].shape = (self.seg_num_grids[1]**2,)
-        assert cate_gts_list[0][1].shape = (self.seg_num_grids[1], self.seg_num_grids[1])
-
-        return ins_gts_list, ins_ind_gts_list, cate_gts_list
+#    def target(self,
+#               ins_pred_list,
+#               bbox_list,
+#               label_list,
+#               mask_list):
+#        # TODO: use MultiApply to compute ins_gts_list, ins_ind_gts_list, cate_gts_list. Parallel w.r.t. img mini-batch
+#        # remember, you want to construct target of the same resolution as prediction output in training
+#
+#        # check flag
+#        assert ins_gts_list[0][1].shape = (self.seg_num_grids[1]**2, 200, 272)
+#        assert ins_ind_gts_list[0][1].shape = (self.seg_num_grids[1]**2,)
+#        assert cate_gts_list[0][1].shape = (self.seg_num_grids[1], self.seg_num_grids[1])
+#
+#        return ins_gts_list, ins_ind_gts_list, cate_gts_list
     # -----------------------------------
     ## process single image in one batch
     # -----------------------------------
