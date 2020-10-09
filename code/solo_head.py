@@ -91,9 +91,9 @@ class SOLOHead(nn.Module):
         if isinstance(m, nn.Conv2d):
           m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
           # m.bias.data.fill_(0)
-          m.bias.data.zero_()
-
-
+      self.cate_out.bias.data.fill_(0)
+      self.ins_out_list.bias.data.fill_(0)
+         
     # Forward function should forward every levels in the FPN.
     # this is done by map function or for loop
     # Input:
