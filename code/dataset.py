@@ -121,8 +121,10 @@ class BuildDataset(torch.utils.data.Dataset):
         assert isinstance(x, torch.Tensor)
         C = x.shape[0]
         # require input: mini-batch x channels x [optional depth] x [optional height] x width
-        tensor_in = x.view((1, 1, C, 300, 400))
-        tensor_out = F.interpolate(tensor_in, (C, H, W))
+        x_interm = torch.unsqueeze(x, 0)
+        x_interm = torch.unsqueeze(x_interm, 0)
+
+        tensor_out = F.interpolate(x_interm, (C, H, W))
         tensor_out = tensor_out.view((C, H, W))
         return tensor_out
 
@@ -294,4 +296,9 @@ if __name__ == '__main__':
 
         if iter == 10:
             break
+
+    # # sanity check on how many objects there is in one images
+    # for iter, data in enumerate(tqdm(train_loader), 0):
+    #     img, label, mask, bbox = [data[i] for i in range(len(data))]
+    #     assert len(bbox) <= 5
 
