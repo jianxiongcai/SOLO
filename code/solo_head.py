@@ -62,37 +62,73 @@ class SOLOHead(nn.Module):
     def _init_layers(self):
         ## TODO initialize layers: stack intermediate layer and output layer
         num_groups = 32
-        self.cate_head = nn.ModuleList()       
-        for _ in range(self.stacked_convs):
-          self.cate_head.append(
-            nn.Conv2d(self.in_channels, self.seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
-            nn.nn.GroupNorm(num_groups,self.seg_feat_channels),
-            nn.ReLU(True))
-          
-        self.cate_out=nn.Sigmoid(nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, kernel_size=(3, 3), padding=1, bias=True)) # SxSx(4-1)
         
-        self.ins_head = nn.ModuleList()
-        for _ in range(self.stacked_convs):
-          self.ins_head.append(
-            nn.Conv2d(self.in_channels+2, self.seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False), # SxSx256
-            nn.nn.GroupNorm(num_groups,self.seg_feat_channels),
-            nn.ReLU(True))
-          
-        self.ins_out_list = nn.ModuleList()
-        self.ins_out_list.append(
-                nn.Conv2d(self.seg_feat_channels, list(map(lambda x:pow(x,2), self.num_grids)), kernel_size=(1, 1), padding=1, bias=True),
-                nn.Sigmoid()
-            )
+        self.cate_head=nn.ModuleList([])
+        for i in range(self.stacked_convs):
+              layer=nn.ModuleList([
+                  nn.Conv2d(self.in_channels, self.seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False),
+                  nn.GroupNorm(num_groups,self.seg_feat_channels),
+                  nn.ReLU(True)
+              ])
+              self.cate_head.append(layer)
+        
+    
+        self.cate_out= nn.ModuleList([
+              nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, kernel_size=(3, 3), padding=1, bias=True),
+              nn.Sigmoid()
+                ])
+           
+    
+        self.ins_head=nn.ModuleList([])
+        first_layer=nn.ModuleList([
+                    nn.Conv2d(self.in_channels+2, self.seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False),
+                    nn.GroupNorm(num_groups,self.seg_feat_channels),
+                    nn.ReLU(True)
+                ])
+        self.ins_head.append(first_layer)
+        for i in range(self.stacked_convs-1):
+             layer=nn.ModuleList([
+                  nn.Conv2d(self.in_channels, self.seg_feat_channels, kernel_size=(3, 3), stride=1, padding=1, bias=False),
+                  nn.GroupNorm(num_groups,self.seg_feat_channels),
+                  nn.ReLU(True)
+              ])
+             self.ins_head.append(layer)
+    
+    
+              
+        num_grids_2=list(map(lambda x:pow(x,2), self.seg_num_grids))
+        
+        self.ins_out_list = []
+        last_layer=nn.ModuleList([])
+        for i in range(len(num_grids_2)):
+             last_layer=nn.ModuleList([
+             nn.Conv2d(self.seg_feat_channels, num_grids_2[i], kernel_size=(1, 1), padding=1, bias=True),
+             nn.Sigmoid() 
+             ])
+             self.ins_out_list.append(last_layer)
+        
 
     # This function initialize weights for head network
     def _init_weights(self):
         ## TODO: initialize the weights
-      for m in self.modules():
-        if isinstance(m, nn.Conv2d):
-          m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
-          # m.bias.data.fill_(0)
-      self.cate_out.bias.data.fill_(0)
-      self.ins_out_list.bias.data.fill_(0)
+        for m in self.cate_head.modules():
+            if isinstance(m, nn.Conv2d): 
+                m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
+                assert m.bias is None
+        for m in self.ins_head.modules():
+            if isinstance(m, nn.Conv2d): 
+                m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
+                assert m.bias is None
+        for m in self.cate_out.modules():
+            if isinstance(m, nn.Conv2d): 
+                m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
+                nn.init.constant_(m.bias, 0) 
+        for layer in self.ins_out_list:
+            for m in layer:
+                if isinstance(m, nn.Conv2d): 
+                    m.weight.data =torch.nn.init.xavier_uniform(m.weight.data) 
+                    nn.init.constant_(m.bias, 0)
+
          
     # Forward function should forward every levels in the FPN.
     # this is done by map function or for loop
@@ -369,56 +405,57 @@ class SOLOHead(nn.Module):
 
 from backbone import *
 if __name__ == '__main__':
-    # file path and make a list
-    imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
-    bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
-    paths = [imgs_path, masks_path, labels_path, bboxes_path]
-    # load the data into data.Dataset
-    dataset = BuildDataset(paths)
-
-    ## Visualize debugging
-    # --------------------------------------------
-    # build the dataloader
-    # set 20% of the dataset as the training data
-    full_size = len(dataset)
-    train_size = int(full_size * 0.8)
-    test_size = full_size - train_size
-    # random split the dataset into training and testset
-    # set seed
-    torch.random.manual_seed(1)
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-    # push the randomized training data into the dataloader
-
-    # train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
-    # test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
-    batch_size = 2
-    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    train_loader = train_build_loader.loader()
-    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    test_loader = test_build_loader.loader()
-
-
-    resnet50_fpn = Resnet50Backbone()
-    solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the background as one category.
-    # loop the image
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    for iter, data in enumerate(train_loader, 0):
-        img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
-        # fpn is a dict
-        backout = resnet50_fpn(img)
-        fpn_feat_list = list(backout.values())
-        # make the target
-
-
-        ## demo
-        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False)
-        ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
-                                                                         bbox_list,
-                                                                         label_list,
-                                                                         mask_list)
-        mask_color_list = ["jet", "ocean", "Spectral"]
-        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
+     solo_head = SOLOHead(num_classes=4)
+#    # file path and make a list
+#    imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
+#    masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
+#    labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
+#    bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
+#    paths = [imgs_path, masks_path, labels_path, bboxes_path]
+#    # load the data into data.Dataset
+#    dataset = BuildDataset(paths)
+#
+#    ## Visualize debugging
+#    # --------------------------------------------
+#    # build the dataloader
+#    # set 20% of the dataset as the training data
+#    full_size = len(dataset)
+#    train_size = int(full_size * 0.8)
+#    test_size = full_size - train_size
+#    # random split the dataset into training and testset
+#    # set seed
+#    torch.random.manual_seed(1)
+#    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+#    # push the randomized training data into the dataloader
+#
+#    # train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
+#    # test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
+#    batch_size = 2
+#    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+#    train_loader = train_build_loader.loader()
+#    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+#    test_loader = test_build_loader.loader()
+#
+#
+#    resnet50_fpn = Resnet50Backbone()
+#    solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the background as one category.
+#    # loop the image
+#    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#    for iter, data in enumerate(train_loader, 0):
+#        img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
+#        # fpn is a dict
+#        backout = resnet50_fpn(img)
+#        fpn_feat_list = list(backout.values())
+#        # make the target
+#
+#
+#        ## demo
+#        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False)
+#        ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
+#                                                                         bbox_list,
+#                                                                         label_list,
+#                                                                         mask_list)
+#        mask_color_list = ["jet", "ocean", "Spectral"]
+#        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
 
 
