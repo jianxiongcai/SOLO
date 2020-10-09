@@ -112,6 +112,10 @@ class SOLOHead(nn.Module):
         assert new_fpn_list[0].shape[1:] == (256,100,136)
         quart_shape = [new_fpn_list[0].shape[-2]*2, new_fpn_list[0].shape[-1]*2]  # stride: 4
         # TODO: use MultiApply to compute cate_pred_list, ins_pred_list. Parallel w.r.t. feature level.
+        # DONE (jianxiong)
+        cate_pred_list, ins_pred_list = self.MultiApply(self.forward_single_level,
+                                                        new_fpn_list, list(range(len(new_fpn_list))),
+                                                        eval=eval, upsample_shape=quart_shape)
         assert len(new_fpn_list) == len(self.seg_num_grids)
 
         # assert cate_pred_list[1].shape[1] == self.cate_out_channels
@@ -264,7 +268,7 @@ class SOLOHead(nn.Module):
         # ins_label_list: list, len: len(FPN), (S^2, 2H_feat, 2W_feat)
         # cate_label_list: list, len: len(FPN), (S, S)
         # ins_ind_label_list: list, len: len(FPN), (S^2, )
-    def targer_single_img(self,
+    def target_single_img(self,
                           gt_bboxes_raw,
                           gt_labels_raw,
                           gt_masks_raw,
