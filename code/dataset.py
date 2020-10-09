@@ -125,7 +125,8 @@ class BuildDataset(torch.utils.data.Dataset):
         x_interm = torch.unsqueeze(x_interm, 0)
 
         tensor_out = F.interpolate(x_interm, (C, H, W))
-        tensor_out = tensor_out.view((C, H, W))
+        tensor_out = tensor_out.squeeze(0)
+        tensor_out = tensor_out.squeeze(0)
         return tensor_out
 
     @staticmethod
