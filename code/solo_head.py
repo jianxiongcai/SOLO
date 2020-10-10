@@ -143,7 +143,7 @@ class SOLOHead(nn.Module):
             # ins_pred_list: list, len(fpn_level), each (bz, S^2, Ori_H, Ori_W) / after upsampling
     def forward(self,
                 fpn_feat_list,
-                eval=True):
+                eval=False):
         new_fpn_list = self.NewFPN(fpn_feat_list)  # stride[8,8,16,32,32]
         assert new_fpn_list[0].shape[1:] == (256,100,136)
         quart_shape = [new_fpn_list[0].shape[-2]*2, new_fpn_list[0].shape[-1]*2]  # stride: 4
@@ -209,7 +209,7 @@ class SOLOHead(nn.Module):
         cate_pred = fpn_feat
         ins_pred = fpn_feat
         num_grid = self.seg_num_grids[idx]  # current level grid
-        # fpn_feat(bz,256,h,w)
+        #upsample_shape=200，272
 
         # in inference time, upsample the pred to (ori image size/4)
         H_feat=fpn_feat.shape[2]
@@ -223,46 +223,43 @@ class SOLOHead(nn.Module):
             cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid),mode='bilinear')  #bz,256,S,S
             for y in self.cate_head:
                 for f in y:
-                    cate_pred=f(cate_pred)
+                    cate_pred=f(cate_pred)                            #bz,256,S,S
             for f in self.cate_out:
-                cate_pred=f(cate_pred)
+                cate_pred=f(cate_pred)                               #bz,256,S,S
             
-            
-#            cate_pred=self.cate_head(cate_pred) #bz,256,S,S
-#            cate_pred=self.cate_out(cate_pred) #bz,C-1,S,S
-            cate_pred = self.points_nms(cate_pred).permute(0,2,3,1)     # cate_pred: (bz,S,S,C-1)
-                                                                            # cate_pred: (bz,C-1,S,S)
+            cate_pred = self.points_nms(cate_pred).permute(0,2,3,1)      # cate_pred: (bz,C-1,S,S)
+                                                                            
             ##mask
-            H = upsample_shape.shape[0]/2 ##200  
-            W = upsample_shape.shape[1]/2 ##272
+            H = upsample_shape.shape[0]/2 ##100  
+            W = upsample_shape.shape[1]/2 ##136
             x=torch.linspace(0,1,W)  ##100                     #bz,256+2,S,S
             y=torch.linspace(0,1,H)  ##136
             xm,ym=torch.meshgrid([x, y])
             xm=torch.unsqueeze(xm, 0).permute(0,2,1) ##xm (1,h,w)
             ym=torch.unsqueeze(ym, 0).permute(0,2,1) ##ym (1,h,w)
             xm=torch.unsqueeze(xm, 0)  ##xm (1,1,h,w)
-            ym=torch.unsqueeze(ym, 0)   ##ym (1,1,h,w)
+            ym=torch.unsqueeze(ym, 0)   ##ym (1,1,h,w)    
             xm = xm.repeat(bz, 1, 1, 1) ##xm (bz,1,h,w)
-            ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
+            ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)   (bz,1,100,136) 
             ins_pred=torch.cat((ins_pred,xm),dim=1)
-            ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)
+            ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)  (bz,258,100,136) 
             for y in self.ins_head:
                 for f in y:
-                    ins_pred=f(ins_pred)   ## (bz,256,h,w)                     
-            ins_pred=F.interpolate(ins_pred,size=(2*H,2*W))
+                    ins_pred=f(ins_pred)   ## (bz,256,h,w)           (bz,256,100,136)            
+            ins_pred=F.interpolate(ins_pred,size=(2*H,2*W))     #  (bz,256,200,272)  
             for f in fnp_idx:               ## (bz,256,200,272) 
-                ins_pred=f(ins_pred)      
+                ins_pred=f(ins_pred)        ## (bz,S^2,200,272) 
             
                       
-        # check flag
+        
         if eval == False:
             #category                                      # fpn_feat(bz,256,h,w)
             cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid),mode='bilinear')  #bz,256,S,S
             for f in self.cate_head:
                 for y in f:
-                    cate_pred = y(cate_pred)
+                    cate_pred = y(cate_pred)    #bz,256,S,S
             for f in self.cate_out:
-                cate_pred = f(cate_pred)
+                cate_pred = f(cate_pred)       #bz,256,S,S
             #mask
             x=torch.linspace(0,1,W_feat)
             y=torch.linspace(0,1,H_feat)
@@ -277,15 +274,13 @@ class SOLOHead(nn.Module):
             ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)  ## (bz,256+2,100,136)
             for y in self.ins_head:
                 for f in y:
-                    ins_pred=f(ins_pred)
+                    ins_pred=f(ins_pred)    ## (bz,256,h,w)
             
-#            ins_pred=self.ins_head(ins_pred)       ## (bz,256,h,w)  
-            ins_pred=F.interpolate(ins_pred,size=(2*H_feat,2*W_feat))    ## (bz,256+2,200,272)
-            for f in fnp_idx:               ## (bz,256,100,136) 
-                ins_pred=f(ins_pred)      
+            ins_pred=F.interpolate(ins_pred,size=(2*H_feat,2*W_feat))    ## (bz,256,2H,2W)
+            for f in fnp_idx:               
+                ins_pred=f(ins_pred)      ## (bz,S^2,100,136) 
             
-#            ins_pred=fnp_idx(ins_pred)   ## (bz,s^2,h,w)  
-                     
+            # check flag         
             assert cate_pred.shape[1:] == (3, num_grid, num_grid)
             assert ins_pred.shape[1:] == (num_grid**2, fpn_feat.shape[2]*2, fpn_feat.shape[3]*2)
         else:
@@ -563,15 +558,15 @@ from backbone import *
 if __name__ == '__main__':
     solo_head = SOLOHead(num_classes=4)
     # file path and make a list
-    # imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
-    # masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
-    # labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
-    # bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
+     imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
+     masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
+     labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
+     bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = '/workspace/data/hw3_mycocodata_labels_comp_zlib.npy'
-    bboxes_path = '/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy'
+#    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
+#    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
+#    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
+#    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     # load the data into data.Dataset
