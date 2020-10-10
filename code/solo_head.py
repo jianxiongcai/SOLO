@@ -74,7 +74,7 @@ class SOLOHead(nn.Module):
         
     
         self.cate_out= nn.ModuleList([
-              nn.Conv2d(self.seg_feat_channels, self.cate_out_channels-1, kernel_size=(3, 3), padding=1, bias=True),
+              nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, kernel_size=(3, 3), padding=1,bias=True),
               nn.Sigmoid()
                 ])
            
@@ -102,7 +102,7 @@ class SOLOHead(nn.Module):
         last_layer=nn.ModuleList([])
         for i in range(len(num_grids_2)):
              last_layer=nn.ModuleList([
-             nn.Conv2d(self.seg_feat_channels, num_grids_2[i], kernel_size=(1, 1), padding=1, bias=True),
+             nn.Conv2d(self.seg_feat_channels, num_grids_2[i], kernel_size=(1, 1), padding=0,bias=True),
              nn.Sigmoid() 
              ])
              self.ins_out_list.append(last_layer)
@@ -143,7 +143,7 @@ class SOLOHead(nn.Module):
             # ins_pred_list: list, len(fpn_level), each (bz, S^2, Ori_H, Ori_W) / after upsampling
     def forward(self,
                 fpn_feat_list,
-                eval=False):
+                eval=True):
         new_fpn_list = self.NewFPN(fpn_feat_list)  # stride[8,8,16,32,32]
         assert new_fpn_list[0].shape[1:] == (256,100,136)
         quart_shape = [new_fpn_list[0].shape[-2]*2, new_fpn_list[0].shape[-1]*2]  # stride: 4
@@ -220,16 +220,23 @@ class SOLOHead(nn.Module):
         if eval == True:
             ## TODO resize ins_pred
             ##category
-            cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid))  #bz,256,S,S
-            cate_pred=self.cate_head(cate_pred) #bz,256,S,S
-            cate_pred=self.cate_out(cate_pred) #bz,C-1,S,S
+            cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid),mode='bilinear')  #bz,256,S,S
+            for y in self.cate_head:
+                for f in y:
+                    cate_pred=f(cate_pred)
+            for f in self.cate_out:
+                cate_pred=f(cate_pred)
+            
+            
+#            cate_pred=self.cate_head(cate_pred) #bz,256,S,S
+#            cate_pred=self.cate_out(cate_pred) #bz,C-1,S,S
             cate_pred = self.points_nms(cate_pred).permute(0,2,3,1)     # cate_pred: (bz,S,S,C-1)
                                                                             # cate_pred: (bz,C-1,S,S)
             ##mask
-            Ori_H_4 = fpn_feat[0].shape[2]
-            Ori_W_4 = fpn_feat[0].shape[3]  #bz,256+2,S,S
-            x=torch.linspace(-1,1,Ori_W_4)/2
-            y=torch.linspace(-1,1,Ori_H_4)/2
+            H = upsample_shape.shape[0]/2 ##200  
+            W = upsample_shape.shape[1]/2 ##272
+            x=torch.linspace(0,1,W)  ##100                     #bz,256+2,S,S
+            y=torch.linspace(0,1,H)  ##136
             xm,ym=torch.meshgrid([x, y])
             xm=torch.unsqueeze(xm, 0).permute(0,2,1) ##xm (1,h,w)
             ym=torch.unsqueeze(ym, 0).permute(0,2,1) ##ym (1,h,w)
@@ -239,21 +246,26 @@ class SOLOHead(nn.Module):
             ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
             ins_pred=torch.cat((ins_pred,xm),dim=1)
             ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)
-            ins_pred=self.ins_head(ins_pred)       ## (bz,256,h,w)  
-            ins_pred=fnp_idx(ins_pred)   ## (bz,s^2,h,w)  
-            ins_pred=F.interpolate(ins_pred,size=(2*Ori_H_4,2*Ori_W_4))
-  
+            for y in self.ins_head:
+                for f in y:
+                    ins_pred=f(ins_pred)   ## (bz,256,h,w)                     
+            ins_pred=F.interpolate(ins_pred,size=(2*H,2*W))
+            for f in fnp_idx:               ## (bz,256,200,272) 
+                ins_pred=f(ins_pred)      
+            
                       
         # check flag
         if eval == False:
             #category                                      # fpn_feat(bz,256,h,w)
-            cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid))  #bz,256,S,S
-            cate_pred=self.cate_head(cate_pred) #bz,256,S,S
-            cate_pred=self.cate_out(cate_pred) #bz,C-1,S,S
-#            cate_pred=cate_pred.permute(0,2,3,1)
+            cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid),mode='bilinear')  #bz,256,S,S
+            for f in self.cate_head:
+                for y in f:
+                    cate_pred = y(cate_pred)
+            for f in self.cate_out:
+                cate_pred = f(cate_pred)
             #mask
-            x=torch.linspace(-1,1,W_feat)/2
-            y=torch.linspace(-1,1,H_feat)/2
+            x=torch.linspace(0,1,W_feat)
+            y=torch.linspace(0,1,H_feat)
             xm,ym=torch.meshgrid([x, y])
             xm=torch.unsqueeze(xm, 0).permute(0,2,1) ##xm (1,h,w)
             ym=torch.unsqueeze(ym, 0).permute(0,2,1) ##ym (1,h,w)
@@ -262,10 +274,17 @@ class SOLOHead(nn.Module):
             xm = xm.repeat(bz, 1, 1, 1) ##xm (bz,1,h,w)
             ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
             ins_pred=torch.cat((ins_pred,xm),dim=1)
-            ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)
-            ins_pred=self.ins_head(ins_pred)       ## (bz,256,h,w)  
-            ins_pred=fnp_idx(ins_pred)   ## (bz,s^2,h,w)  
-            ins_pred=F.interpolate(ins_pred,size=(2*H_feat,2*W_feat))  ## (bz,s^2,2*h,2*w) 
+            ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)  ## (bz,256+2,100,136)
+            for y in self.ins_head:
+                for f in y:
+                    ins_pred=f(ins_pred)
+            
+#            ins_pred=self.ins_head(ins_pred)       ## (bz,256,h,w)  
+            ins_pred=F.interpolate(ins_pred,size=(2*H_feat,2*W_feat))    ## (bz,256+2,200,272)
+            for f in fnp_idx:               ## (bz,256,100,136) 
+                ins_pred=f(ins_pred)      
+            
+#            ins_pred=fnp_idx(ins_pred)   ## (bz,s^2,h,w)  
                      
             assert cate_pred.shape[1:] == (3, num_grid, num_grid)
             assert ins_pred.shape[1:] == (num_grid**2, fpn_feat.shape[2]*2, fpn_feat.shape[3]*2)
