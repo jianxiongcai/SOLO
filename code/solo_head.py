@@ -74,7 +74,7 @@ class SOLOHead(nn.Module):
         
     
         self.cate_out= nn.ModuleList([
-              nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, kernel_size=(3, 3), padding=1, bias=True),
+              nn.Conv2d(self.seg_feat_channels, self.cate_out_channels-1, kernel_size=(3, 3), padding=1, bias=True),
               nn.Sigmoid()
                 ])
            
@@ -113,20 +113,20 @@ class SOLOHead(nn.Module):
         ## TODO: initialize the weights
         for m in self.cate_head.modules():
             if isinstance(m, nn.Conv2d): 
-                m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
+                m.weight.data =torch.nn.init.xavier_uniform_(m.weight.data)
                 assert m.bias is None
         for m in self.ins_head.modules():
             if isinstance(m, nn.Conv2d): 
-                m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
+                m.weight.data =torch.nn.init.xavier_uniform_(m.weight.data)
                 assert m.bias is None
         for m in self.cate_out.modules():
             if isinstance(m, nn.Conv2d): 
-                m.weight.data =torch.nn.init.xavier_uniform(m.weight.data)
+                m.weight.data =torch.nn.init.xavier_uniform_(m.weight.data)
                 nn.init.constant_(m.bias, 0) 
         for layer in self.ins_out_list:
             for m in layer:
                 if isinstance(m, nn.Conv2d): 
-                    m.weight.data =torch.nn.init.xavier_uniform(m.weight.data) 
+                    m.weight.data =torch.nn.init.xavier_uniform_(m.weight.data) 
                     nn.init.constant_(m.bias, 0)
 
          
@@ -174,20 +174,34 @@ class SOLOHead(nn.Module):
         new_fpn_list[2]=fpn_feat_list[2]
         new_fpn_list[3]=fpn_feat_list[3]
         last_layer=((25,34))
-        new_fpn_list[4]=torch.nn.functional.interpolate(fpn_feat_list[4],size=(last_layer[0],last_layer[1]))
+        new_fpn_list[4]=F.interpolate(fpn_feat_list[4],size=(last_layer[0],last_layer[1]))
         return new_fpn_list
+    
+    def torch_interpolate(x, H, W):
+        """
+        A quick wrapper fucntion for torch interpolate
+        :return:
+        """
+        assert isinstance(x, torch.Tensor)
+        C = x.shape[0]
+        # require input: mini-batch x channels x [optional depth] x [optional height] x width
+        x_interm = torch.unsqueeze(x, 0)
+        x_interm = torch.unsqueeze(x_interm, 0)
 
+        tensor_out = F.interpolate(x_interm, (C, H, W))
+        tensor_out = tensor_out.view((C, H, W))
+        return tensor_out
     # This function forward a single level of fpn_featmap through the network
     # Input:
         # fpn_feat: (bz, fpn_channels(256), H_feat, W_feat)
         # idx: indicate the fpn level idx, num_grids idx, the ins_out_layer idx
     # Output:
+        # if eval==True
+            # cate_pred: (bz,S,S,C-1) / after point_NMS
+            # ins_pred: (bz, S^2, Ori_H/4, Ori_W/4) / after upsampling 
         # if eval==False
             # cate_pred: (bz,C-1,S,S)
             # ins_pred: (bz, S^2, 2H_feat, 2W_feat)
-        # if eval==True
-            # cate_pred: (bz,S,S,C-1) / after point_NMS
-            # ins_pred: (bz, S^2, Ori_H/4, Ori_W/4) / after upsampling
     def forward_single_level(self, fpn_feat, idx, eval=False, upsample_shape=None):
         # upsample_shape is used in eval mode
         ## TODO: finish forward function for single level in FPN.
@@ -195,15 +209,64 @@ class SOLOHead(nn.Module):
         cate_pred = fpn_feat
         ins_pred = fpn_feat
         num_grid = self.seg_num_grids[idx]  # current level grid
+        # fpn_feat(bz,256,h,w)
 
         # in inference time, upsample the pred to (ori image size/4)
+        H_feat=fpn_feat.shape[2]
+        W_feat=fpn_feat.shape[3]
+        bz=fpn_feat.shape[0]
+        fnp_idx=self.ins_out_list[idx]
+     
         if eval == True:
             ## TODO resize ins_pred
-
-            cate_pred = self.points_nms(cate_pred).permute(0,2,3,1)
-
+            ##category
+            cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid))  #bz,256,S,S
+            cate_pred=self.cate_head(cate_pred) #bz,256,S,S
+            cate_pred=self.cate_out(cate_pred) #bz,C-1,S,S
+            cate_pred = self.points_nms(cate_pred).permute(0,2,3,1)     # cate_pred: (bz,S,S,C-1)
+                                                                            # cate_pred: (bz,C-1,S,S)
+            ##mask
+            Ori_H_4 = fpn_feat[0].shape[2]
+            Ori_W_4 = fpn_feat[0].shape[3]  #bz,256+2,S,S
+            x=torch.linspace(-1,1,Ori_W_4)/2
+            y=torch.linspace(-1,1,Ori_H_4)/2
+            xm,ym=torch.meshgrid([x, y])
+            xm=torch.unsqueeze(xm, 0).permute(0,2,1) ##xm (1,h,w)
+            ym=torch.unsqueeze(ym, 0).permute(0,2,1) ##ym (1,h,w)
+            xm=torch.unsqueeze(xm, 0)  ##xm (1,1,h,w)
+            ym=torch.unsqueeze(ym, 0)   ##ym (1,1,h,w)
+            xm = xm.repeat(bz, 1, 1, 1) ##xm (bz,1,h,w)
+            ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
+            ins_pred=torch.cat((ins_pred,xm),dim=1)
+            ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)
+            ins_pred=self.ins_head(ins_pred)       ## (bz,256,h,w)  
+            ins_pred=fnp_idx(ins_pred)   ## (bz,s^2,h,w)  
+            ins_pred=F.interpolate(ins_pred,size=(2*Ori_H_4,2*Ori_W_4))
+  
+                      
         # check flag
         if eval == False:
+            #category                                      # fpn_feat(bz,256,h,w)
+            cate_pred=F.interpolate(fpn_feat,size=(num_grid,num_grid))  #bz,256,S,S
+            cate_pred=self.cate_head(cate_pred) #bz,256,S,S
+            cate_pred=self.cate_out(cate_pred) #bz,C-1,S,S
+#            cate_pred=cate_pred.permute(0,2,3,1)
+            #mask
+            x=torch.linspace(-1,1,W_feat)/2
+            y=torch.linspace(-1,1,H_feat)/2
+            xm,ym=torch.meshgrid([x, y])
+            xm=torch.unsqueeze(xm, 0).permute(0,2,1) ##xm (1,h,w)
+            ym=torch.unsqueeze(ym, 0).permute(0,2,1) ##ym (1,h,w)
+            xm=torch.unsqueeze(xm, 0)  ##xm (1,1,h,w)
+            ym=torch.unsqueeze(ym, 0)   ##ym (1,1,h,w)
+            xm = xm.repeat(bz, 1, 1, 1) ##xm (bz,1,h,w)
+            ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
+            ins_pred=torch.cat((ins_pred,xm),dim=1)
+            ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)
+            ins_pred=self.ins_head(ins_pred)       ## (bz,256,h,w)  
+            ins_pred=fnp_idx(ins_pred)   ## (bz,s^2,h,w)  
+            ins_pred=F.interpolate(ins_pred,size=(2*H_feat,2*W_feat))  ## (bz,s^2,2*h,2*w) 
+                     
             assert cate_pred.shape[1:] == (3, num_grid, num_grid)
             assert ins_pred.shape[1:] == (num_grid**2, fpn_feat.shape[2]*2, fpn_feat.shape[3]*2)
         else:
