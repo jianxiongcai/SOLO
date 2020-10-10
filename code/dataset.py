@@ -113,7 +113,8 @@ class BuildDataset(torch.utils.data.Dataset):
         assert bbox.shape[0] == mask.shape[0]
         return img, mask, bbox
 
-    def torch_interpolate(self, x, H, W):
+    @staticmethod
+    def torch_interpolate(x, H, W):
         """
         A quick wrapper fucntion for torch interpolate
         :return:
