@@ -568,10 +568,10 @@ from backbone import *
 if __name__ == '__main__':
     solo_head = SOLOHead(num_classes=4)
     # file path and make a list
-     imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
-     masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
-     labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
-     bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
+    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
+    bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
 #    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
 #    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
