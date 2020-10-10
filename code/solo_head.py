@@ -360,20 +360,24 @@ class SOLOHead(nn.Module):
         # ins_gts_list: list, len(bz), list, len(fpn), (S^2, 2H_f, 2W_f)
         # ins_ind_gts_list: list, len(bz), list, len(fpn), (S^2,)
         # cate_gts_list: list, len(bz), list, len(fpn), (S, S), {1,2,3}
-#    def target(self,
-#               ins_pred_list,
-#               bbox_list,
-#               label_list,
-#               mask_list):
-#        # TODO: use MultiApply to compute ins_gts_list, ins_ind_gts_list, cate_gts_list. Parallel w.r.t. img mini-batch
-#        # remember, you want to construct target of the same resolution as prediction output in training
-#
-#        # check flag
-#        assert ins_gts_list[0][1].shape = (self.seg_num_grids[1]**2, 200, 272)
-#        assert ins_ind_gts_list[0][1].shape = (self.seg_num_grids[1]**2,)
-#        assert cate_gts_list[0][1].shape = (self.seg_num_grids[1], self.seg_num_grids[1])
-#
-#        return ins_gts_list, ins_ind_gts_list, cate_gts_list
+    def target(self,
+              ins_pred_list,
+              bbox_list,
+              label_list,
+              mask_list):
+        # TODO: use MultiApply to compute ins_gts_list, ins_ind_gts_list, cate_gts_list. Parallel w.r.t. img mini-batch
+        # remember, you want to construct target of the same resolution as prediction output in training
+        feature_sizes = [(ins_pred.shape[2], ins_pred.shape[3]) for ins_pred in ins_pred_list]
+        ins_gts_list, ins_ind_gts_list, cate_gts_list = self.MultiApply(self.target_single_img,
+                                                                        bbox_list, label_list, mask_list,
+                                                                        featmap_sizes=feature_sizes)
+
+        # check flag
+        assert ins_gts_list[0][1].shape == (self.seg_num_grids[1]**2, 200, 272)
+        assert ins_ind_gts_list[0][1].shape == (self.seg_num_grids[1]**2,)
+        assert cate_gts_list[0][1].shape == (self.seg_num_grids[1], self.seg_num_grids[1])
+
+        return ins_gts_list, ins_ind_gts_list, cate_gts_list
     # -----------------------------------
     ## process single image in one batch
     # -----------------------------------
@@ -399,6 +403,72 @@ class SOLOHead(nn.Module):
         ins_ind_label_list = []
         cate_label_list = []
 
+        # (for each image),compute meta data (object center region, etc)
+        N_obj, W_ori, H_ori = gt_bboxes_raw.shape
+        obj_scale_list = []
+        obj_center_list = []
+        obj_center_regions = []
+        obj_indice = [[] for i in range(len(featmap_sizes))]            # each layer's positive instance number
+
+        # compute object scale and assign to level in FPN
+        for obj_idx in range(N_obj):
+            # compute \sqrt(wh)
+            bbox = gt_bboxes_raw[obj_idx]
+            obj_w, obj_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            obj_scale = torch.sqrt(obj_w * obj_h)
+            obj_scale_list.append(obj_scale)
+            # assign object instance
+            for level_idx, level_range in enumerate(self.scale_ranges, 0):
+                if (obj_scale >= level_range[0]) and (obj_scale < level_range[1]):
+                    obj_indice[level_idx].append(obj_idx)
+
+            # calc object center region
+            obj_c_x, obj_c_y = (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
+            obj_center_list.append(torch.tensor([obj_c_x, obj_c_y], dtype=torch.float))
+            obj_center_regions.append(torch.tensor([
+                obj_c_x - obj_w / 2.0,
+                obj_c_y - obj_h / 2.0,
+                obj_c_x + obj_w / 2.0,
+                obj_c_y + obj_h / 2.0,
+                ], dtype=torch.float))
+
+        # for each level, compute the cate_label,
+        # todo: note: FPN feature map [2, 3]
+        # Note: the feat_size is (2 * H_feat, 2 * W_feat)
+        for level_idx, feat_size in enumerate(featmap_sizes, 0):
+            S = self.seg_num_grids[level_idx]
+            assert feat_size.ndim == 2
+            # cate label map / ins_label_list
+            cate_label_map = torch.zeros((S, S), dtype=torch.long)
+            ins_label_map = torch.zeros((S * S, feat_size[0], feat_size[1]), dtype=torch.float)
+            ins_ind_label = torch.zeros((S * S), dtype=torch.float)
+            # obj_idx w.r.t. gt_labels_raw / gt_bbox_raw
+            for obj_idx in obj_indice[level_idx]:       # perfix i denotes grid cell index here
+                # the 2D grid index where the center region boundary fall in
+                # (4,) torch.FloatTensor
+                obj_region_i = torch.floor(obj_center_regions[obj_idx] * S)
+                obj_center_i = torch.floor(obj_center_list[obj_idx] * S)
+
+                # set center point
+                x_min = max(obj_center_i[0].item() - 1, obj_region_i[0].item())
+                y_min = max(obj_center_i[1].item() - 1, obj_region_i[1].item())
+                x_max = max(obj_center_i[0].item() + 1, obj_region_i[2].item())
+                y_max = max(obj_center_i[1].item() + 1, obj_region_i[3].item())
+                # set cate map
+                cate_label_map[x_min : (x_max + 1), y_min : (y_max + 1)] = gt_labels_raw[obj_idx]
+
+                # set target mask and ins_ind_label
+                mask_raw = gt_masks_raw[obj_idx: (obj_idx+1)]           # 1 * H_feat * W_feat
+                mask_resized = BuildDataset.torch_interpolate(mask_raw, feat_size[0], feat_size[1])
+                for i in range(x_min, x_max + 1):
+                    for j in range(y_min, y_max + 1):
+                        ins_label_map[i * S + j] = mask_resized
+                        ins_ind_label[i * S + j] = 1.0
+
+            # prepare res
+            cate_label_list.append(cate_label_map)
+            ins_label_list.append(ins_label_map)
+            ins_ind_label_list.append(ins_ind_label)
 
         # check flag
         assert ins_label_list[1].shape == (1296,200,272)
@@ -493,10 +563,16 @@ from backbone import *
 if __name__ == '__main__':
     solo_head = SOLOHead(num_classes=4)
     # file path and make a list
-    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = "../../data/hw3_mycocodata_labels_comp_zlib.npy"
-    bboxes_path = "../../data/hw3_mycocodata_bboxes_comp_zlib.npy"
+    # imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
+    # masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
+    # labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
+    # bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
+
+    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = '/workspace/data/hw3_mycocodata_labels_comp_zlib.npy'
+    bboxes_path = '/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy'
+
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     # load the data into data.Dataset
     dataset = BuildDataset(paths)
@@ -537,11 +613,11 @@ if __name__ == '__main__':
 
         ## demo
         cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False)
-#        ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
-#                                                                         bbox_list,
-#                                                                         label_list,
-#                                                                         mask_list)
-#        mask_color_list = ["jet", "ocean", "Spectral"]
-#        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
+        ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
+                                                                        bbox_list,
+                                                                        label_list,
+                                                                        mask_list)
+        mask_color_list = ["jet", "ocean", "Spectral"]
+        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
 
 
