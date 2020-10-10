@@ -5,6 +5,8 @@ import numpy as np
 from scipy import ndimage
 from dataset import *
 from functools import partial
+from matplotlib import pyplot as plt
+import skimage.transform
 
 class SOLOHead(nn.Module):
     def __init__(self,
@@ -176,21 +178,25 @@ class SOLOHead(nn.Module):
         last_layer=((25,34))
         new_fpn_list[4]=F.interpolate(fpn_feat_list[4],size=(last_layer[0],last_layer[1]))
         return new_fpn_list
-    
-    def torch_interpolate(x, H, W):
-        """
-        A quick wrapper fucntion for torch interpolate
-        :return:
-        """
-        assert isinstance(x, torch.Tensor)
-        C = x.shape[0]
-        # require input: mini-batch x channels x [optional depth] x [optional height] x width
-        x_interm = torch.unsqueeze(x, 0)
-        x_interm = torch.unsqueeze(x_interm, 0)
 
-        tensor_out = F.interpolate(x_interm, (C, H, W))
-        tensor_out = tensor_out.view((C, H, W))
-        return tensor_out
+    # todo (jianxiong): delete this
+    # def torch_interpolate(x, H, W):
+    #     """
+    #     A quick wrapper fucntion for torch interpolate
+    #     :return:
+    #     """
+    #     assert isinstance(x, torch.Tensor)
+    #     C = x.shape[0]
+    #     # require input: mini-batch x channels x [optional depth] x [optional height] x width
+    #     x_interm = torch.unsqueeze(x, 0)
+    #     x_interm = torch.unsqueeze(x_interm, 0)
+    #
+    #     tensor_out = F.interpolate(x_interm, (C, H, W))
+    #     tensor_out = tensor_out.view((C, H, W))
+    #     return tensor_out
+
+
+
     # This function forward a single level of fpn_featmap through the network
     # Input:
         # fpn_feat: (bz, fpn_channels(256), H_feat, W_feat)
@@ -385,7 +391,7 @@ class SOLOHead(nn.Module):
         cate_label_list = []
 
         # (for each image),compute meta data (object center region, etc)
-        N_obj, W_ori, H_ori = gt_bboxes_raw.shape
+        N_obj = gt_bboxes_raw.shape[0]
         obj_scale_list = []
         obj_center_list = []
         obj_center_regions = []
@@ -414,8 +420,7 @@ class SOLOHead(nn.Module):
                 ], dtype=torch.float))
 
         # for each level, compute the cate_label,
-        # todo: note: FPN feature map [2, 3]
-        # Note: the feat_size is (2 * H_feat, 2 * W_feat)
+        # Note: the input feat_size is (2 * H_feat, 2 * W_feat)
         for level_idx, feat_size in enumerate(featmap_sizes, 0):
             S = self.seg_num_grids[level_idx]
             assert feat_size.ndim == 2
@@ -436,13 +441,13 @@ class SOLOHead(nn.Module):
                 x_max = max(obj_center_i[0].item() + 1, obj_region_i[2].item())
                 y_max = max(obj_center_i[1].item() + 1, obj_region_i[3].item())
                 # set cate map
-                cate_label_map[x_min : (x_max + 1), y_min : (y_max + 1)] = gt_labels_raw[obj_idx]
+                cate_label_map[y_min : (y_max + 1), x_min : (x_max + 1)] = gt_labels_raw[obj_idx]
 
                 # set target mask and ins_ind_label
                 mask_raw = gt_masks_raw[obj_idx: (obj_idx+1)]           # 1 * H_feat * W_feat
                 mask_resized = BuildDataset.torch_interpolate(mask_raw, feat_size[0], feat_size[1])
-                for i in range(x_min, x_max + 1):
-                    for j in range(y_min, y_max + 1):
+                for i in range(y_min, y_max + 1):
+                    for j in range(x_min, x_max + 1):
                         ins_label_map[i * S + j] = mask_resized
                         ins_ind_label[i * S + j] = 1.0
 
@@ -521,7 +526,50 @@ class SOLOHead(nn.Module):
                img):
         ## TODO: target image recover, for each image, recover their segmentation in 5 FPN levels.
         ## This is an important visual check flag.
-        pass
+        for img_i in range(len(ins_gts_list)):
+            img_single = img[img_i]         # (3,Ori_H, Ori_W) original color image
+            for level_i in range(len(ins_gts_list[img_i])):
+                ins_gts = ins_gts_list[img_i, level_i]      # (S^2, 2H_f, 2W_f)
+                cate_gts = cate_gts_list[img_i, level_i]    # (S, S), {1,2,3}
+                ins_ind_gts = ins_ind_gts_list[img_i, level_i]  # (S^2)
+
+                # synthesis the visualization for this level of FPN
+                fig,ax = plt.subplots(1)
+                img_vis = np.array(img_single.cpu().numpy())
+                ax.imshow(img_vis)
+
+                H_feat = ins_gts.shape[1] / 2
+                W_feat = ins_gts.shape[2] / 2
+
+                # for all active channel, extract the mask and sum up
+                mask_vis = np.zeros((3, 2 * H_feat, 2 * W_feat))
+                for flatten_idx in torch.nonzero(ins_ind_gts):
+                    grid_i = int(flatten_idx.item() / H_feat)
+                    grid_j = flatten_idx.item() % H_feat
+                    obj_label = cate_gts[grid_i, grid_j]
+                    assert obj_label != 0.0
+
+                    if obj_label == 1:  # car
+                        color_channel = 2
+                    elif obj_label == 2:  # people
+                        color_channel = 1
+                    elif obj_label == 3:
+                        color_channel = 0
+                    else:  # dataset can not handle
+                        raise RuntimeError("[ERROR] obj_label = {}".format(obj_label))
+
+                    mask_vis[color_channel] = mask_vis[color_channel] + ins_gts[flatten_idx].cpu().numpy()
+
+                # visualization
+                mask_vis_resized = skimage.transform.resize(mask_vis.transpose((1, 2, 0)),
+                                                            (img_single.shape[1], img_single.shape[0], 3))
+                img_vis = img_single.cpu().numpy()          # to numpy array
+                # use mask value if available, otherwise, use img value
+                img_vis = mask_vis_resized + img_vis * (mask_vis_resized == 0)
+
+                plt.imshow(img_vis)
+                plt.savefig("test_output.png")
+                plt.show()
 
     # This function plot the inference segmentation in img
     # Input:
