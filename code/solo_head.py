@@ -232,8 +232,8 @@ class SOLOHead(nn.Module):
             cate_pred = self.points_nms(cate_pred)      # cate_pred: (bz,C-1,S,S)
                                                                             
             ##mask
-            x=torch.linspace(0,1,W_feat)  ##100                     #bz,256+2,S,S
-            y=torch.linspace(0,1,H_feat)  ##136
+            x=torch.linspace(-1,1,W_feat)  ##100                     #bz,256+2,S,S
+            y=torch.linspace(-1,1,H_feat)  ##136
             xm,ym=torch.meshgrid([x, y])
             xm=torch.unsqueeze(xm, 0) ##xm (1,w,h)
             ym=torch.unsqueeze(ym, 0) ##ym (1,w,h)
@@ -263,8 +263,8 @@ class SOLOHead(nn.Module):
             for f in self.cate_out:
                 cate_pred = f(cate_pred)       #bz,256,S,S
             #mask
-            x=torch.linspace(0,1,W_feat)
-            y=torch.linspace(0,1,H_feat)
+            x=torch.linspace(-1,1,W_feat)
+            y=torch.linspace(-1,1,H_feat)
             xm,ym=torch.meshgrid([x, y])
             xm=torch.unsqueeze(xm, 0) ##xm (1,w,h)
             ym=torch.unsqueeze(ym, 0) ##ym (1,w,h)
@@ -567,15 +567,15 @@ from backbone import *
 if __name__ == '__main__':
     solo_head = SOLOHead(num_classes=4)
     # file path and make a list
-#     imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
-#     masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
-#     labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
-#     bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
+     imgs_path = './data/hw3_mycocodata_img_comp_zlib.h5'
+     masks_path = './data/hw3_mycocodata_mask_comp_zlib.h5'
+     labels_path = "./data/hw3_mycocodata_labels_comp_zlib.npy"
+     bboxes_path = "./data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
-    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
+#    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
+#    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
+#    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
+#    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     # load the data into data.Dataset
