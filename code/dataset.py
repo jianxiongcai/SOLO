@@ -48,7 +48,7 @@ class BuildDataset(torch.utils.data.Dataset):
 
 
         # annotation
-        # label: start counting from 0
+        # label: start counting from 1
         label = torch.tensor(self.labels_all[index], dtype=torch.long)
         # collect all object mask for the image
         mask_offset_s = self.mask_offset[index]
@@ -287,7 +287,7 @@ if __name__ == '__main__':
             plt.savefig("./testfig/visualtrainset_{}_{}_.png".format(iter, i))
             plt.show()
 
-        if iter == 10:
+        if iter == 40:
             break
 
     # # sanity check on how many objects there is in one images
