@@ -12,6 +12,9 @@ import skimage.transform
 import os.path
 import shutil
 
+import gc
+gc.enable()
+
 class SOLOHead(nn.Module):
     def __init__(self,
         num_classes,
