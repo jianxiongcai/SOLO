@@ -12,6 +12,9 @@ import skimage.transform
 import os.path
 import shutil
 
+import gc
+gc.enable()
+
 class SOLOHead(nn.Module):
     def __init__(self,
         num_classes,
@@ -104,14 +107,16 @@ class SOLOHead(nn.Module):
               
         num_grids_2=list(map(lambda x:pow(x,2), self.seg_num_grids))
         
-        self.ins_out_list = []
+        ins_out_list_tmp = []           # python list
         last_layer=nn.ModuleList([])
         for i in range(len(num_grids_2)):
              last_layer=nn.ModuleList([
              nn.Conv2d(self.seg_feat_channels, num_grids_2[i], kernel_size=(1, 1), padding=0,bias=True),
              nn.Sigmoid() 
              ])
-             self.ins_out_list.append(last_layer)
+             ins_out_list_tmp.append(last_layer)
+        # convert to nn.ModuleList for GPU capability
+        self.ins_out_list = nn.ModuleList(ins_out_list_tmp)
         
 
     # This function initialize weights for head network
@@ -283,6 +288,8 @@ class SOLOHead(nn.Module):
             ym=torch.unsqueeze(ym, 0)   ##ym (1,1,h,w)
             xm = xm.repeat(bz, 1, 1, 1) ##xm (bz,1,h,w)
             ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
+            # gpu device
+            xm, ym = xm.to(ins_pred.device), ym.to(ins_pred.device)
             ins_pred=torch.cat((ins_pred,xm),dim=1)
             ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)  ## (bz,256+2,100,136)
 #            ins_pred = ins_pred.permute(0,1,3,2)   #(bz,256+2,h,w)    (bz,256,136,100)
@@ -696,10 +703,16 @@ if __name__ == '__main__':
     resnet50_fpn = Resnet50Backbone()
     solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the background as one category.
     # loop the image
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    # to gpu device
+    resnet50_fpn = resnet50_fpn.to(device)
+    solo_head = solo_head.to(device)
+
     for iter, data in enumerate(train_loader, 0):
         img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
         # fpn is a dict
+        img = img.to(device)
         backout = resnet50_fpn(img)
         fpn_feat_list = list(backout.values())
         # make the target

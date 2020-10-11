@@ -4,3 +4,4 @@
 testfig/
 jupyters/
 **/plotgt_result/
+**/__pycache__/

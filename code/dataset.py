@@ -230,11 +230,13 @@ if __name__ == '__main__':
     test_loader = test_build_loader.loader()
 
     mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
-    # mask_colors = [np.array([1, 0, 0]),
-    #                np.array([0, 0, 1]),
-    #                np.array([0, 1, 0]),
-    #                np.array([1, 1, 0]),
-    #                np.array([1, 0, 1])]
+    # convert to rgb color list
+    rgb_color_list = []
+    for color_str in mask_color_list:
+        color_map = cm.ScalarMappable(cmap=color_str)
+        rgb_value = np.array(color_map.to_rgba(0))[:3]
+        rgb_color_list.append(rgb_value)
+
     # loop the image
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     for iter, data in enumerate(train_loader, 0):
@@ -254,34 +256,21 @@ if __name__ == '__main__':
             ## TODO: plot images with annotations
             fig,ax = plt.subplots(1)
             # the input image: to (800, 1088, 3)
-            alpha = 0.2
+            alpha = 0.15
             # img_vis = alpha * BuildDataset.unnormalize_img(img[i])
-            img_vis = alpha * img[i]
+            img_vis = img[i]
             img_vis = img_vis.permute((1, 2, 0)).cpu().numpy()
-            # assert np.max(img_vis) <= 0.7
-            # assert np.min(img_vis) >= 0.0
-
-            # object mask: assign color with instance id
-            # for obj_i, obj_mask in enumerate(mask[i], 0):
-            #     img_mask = np.zeros((800, 1088, 3))
-            #     img_mask[:, :, 0] = obj_mask
-            #     img_mask[:, :, 1] = obj_mask
-            #     img_mask[:, :, 2] = obj_mask
-            #     img_mask = img_mask * mask_colors[obj_i]
-            #     img_vis = img_vis + 0.3 * img_mask
 
             # object mask: assign color with class label
             for obj_i, obj_mask in enumerate(mask[i], 0):
                 obj_label = label[i][obj_i]
-                if obj_label == 1:                  # car
-                    color_channel = 2
-                elif obj_label == 2:                # people
-                    color_channel = 1
-                elif obj_label == 3:
-                    color_channel = 0
-                else:                               # dataset can not handle
-                    raise RuntimeError("[ERROR] obj_label = {}".format(obj_label))
-                img_vis[:, :, color_channel] = img_vis[:, :, color_channel] + (1-alpha) * obj_mask.cpu().numpy()
+
+                rgb_color = rgb_color_list[obj_label - 1]
+                # (800, 1088, 3)
+                obj_mask_np = np.stack([obj_mask.cpu().numpy(), obj_mask.cpu().numpy(), obj_mask.cpu().numpy()], axis=2)
+                # alpha-blend mask
+                # img_vis = alpha * img_vis * (obj_mask_np == 0) + (1-alpha) * (obj_mask_np * rgb_color) * (obj_mask_np != 0)
+                img_vis[obj_mask_np != 0] = ((1-alpha) * rgb_color + alpha * img_vis)[obj_mask_np != 0]
 
             # overlapping objects
             img_vis = np.clip(img_vis, 0, 1)
