@@ -425,7 +425,7 @@ class SOLOHead(nn.Module):
         obj_scale_list = []
         obj_center_list = []
         obj_center_regions = []
-        obj_indice = [[] for i in range(len(featmap_sizes))]            # each layer's positive instance number
+        obj_indice = [list() for i in range(len(featmap_sizes))]            # each layer's positive instance number
 
         # compute object scale and assign to level in FPN
         for obj_idx in range(N_obj):
@@ -441,7 +441,9 @@ class SOLOHead(nn.Module):
                     obj_indice[level_idx].append(obj_idx)
 
             # calc object center region
-            obj_c_x, obj_c_y = (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
+            # obj_c_x, obj_c_y = (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
+            obj_c_y, obj_c_x = ndimage.center_of_mass(gt_masks_raw[obj_idx].cpu().numpy())
+            obj_c_y, obj_c_x = obj_c_y / H_ori, obj_c_x / W_ori             # normalized coord
             obj_center_list.append(torch.tensor([obj_c_x, obj_c_y], dtype=torch.float))
             obj_center_regions.append(torch.tensor([
                 obj_c_x - obj_w / 2.0,
@@ -471,12 +473,10 @@ class SOLOHead(nn.Module):
                 y_min = max(obj_center_i[1].item() - 1, obj_region_i[1].item())
                 x_max = min(obj_center_i[0].item() + 1, obj_region_i[2].item())
                 y_max = min(obj_center_i[1].item() + 1, obj_region_i[3].item())
-                assert x_min >= 0
-                assert y_min >= 0
-                assert x_max <= S
-                assert y_max <= S
-                x_max = min(x_max, S-1)         # for points on the boarder, assign them to the last cell
-                y_max = min(y_max, S-1)
+                # make sure valid values
+                x_min, y_min = max(x_min, 0), max(y_min, 0)
+                x_max, y_max = min(x_max, S-1), max(y_max, S-1)
+
                 x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(x_max), int(y_max)
                 # set cate map
                 # obj_label = gt_labels_raw[obj_idx].item()
@@ -598,16 +598,6 @@ class SOLOHead(nn.Module):
                     obj_label = cate_gts[grid_i, grid_j]
                     assert obj_label != 0.0
 
-                    # if obj_label == 1:  # car
-                    #     color_channel = 2
-                    # elif obj_label == 2:  # people
-                    #     color_channel = 1
-                    # elif obj_label == 3:
-                    #     color_channel = 0
-                    # else:  # dataset can not handle
-                    #     raise RuntimeError("[ERROR] obj_label = {}".format(obj_label))
-                    # mask_vis[color_channel] = mask_vis[color_channel] + ins_gts[flatten_idx].cpu().numpy()
-
                     # assign color
                     rgb_color = rgb_color_list[obj_label - 1]       # (3,)
                     # add mask to visualization image
@@ -630,10 +620,10 @@ class SOLOHead(nn.Module):
 
                 # save the file
                 saving_id = 1
-                saving_file = "plotgt_result/test_mask_{}_fpn_{}.png".format(saving_id, level_i)
+                saving_file = "plotgt_result/img_{}_fpn_{}.png".format(saving_id, level_i)
                 while os.path.isfile(saving_file):
                     saving_id = saving_id + 1
-                    saving_file = "plotgt_result/test_mask_{}_fpn_{}.png".format(saving_id, level_i)
+                    saving_file = "plotgt_result/img_{}_fpn_{}.png".format(saving_id, level_i)
                 plt.savefig(saving_file)
 
     # This function plot the inference segmentation in img
@@ -728,7 +718,7 @@ if __name__ == '__main__':
         solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
         # break
 
-        if (iter > 20):
+        if (iter > 40):
             break
 
 

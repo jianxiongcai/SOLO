@@ -287,7 +287,7 @@ if __name__ == '__main__':
             plt.savefig("./testfig/visualtrainset_{}_{}_.png".format(iter, i))
             plt.show()
 
-        if iter == 10:
+        if iter == 40:
             break
 
     # # sanity check on how many objects there is in one images
