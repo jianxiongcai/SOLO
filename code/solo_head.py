@@ -446,10 +446,10 @@ class SOLOHead(nn.Module):
             obj_c_y, obj_c_x = obj_c_y / H_ori, obj_c_x / W_ori             # normalized coord
             obj_center_list.append(torch.tensor([obj_c_x, obj_c_y], dtype=torch.float))
             obj_center_regions.append(torch.tensor([
-                obj_c_x - obj_w / 2.0,
-                obj_c_y - obj_h / 2.0,
-                obj_c_x + obj_w / 2.0,
-                obj_c_y + obj_h / 2.0,
+                obj_c_x - self.epsilon * obj_w / 2.0,
+                obj_c_y - self.epsilon * obj_h / 2.0,
+                obj_c_x + self.epsilon * obj_w / 2.0,
+                obj_c_y + self.epsilon * obj_h / 2.0,
                 ], dtype=torch.float))
 
         # for each level, compute the cate_label,
