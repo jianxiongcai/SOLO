@@ -2,3 +2,5 @@
 .DS_STORE
 
 testfig/
+jupyters/
+**/plotgt_result/

@@ -1,12 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.data
 import numpy as np
 from scipy import ndimage
 from dataset import *
 from functools import partial
 from matplotlib import pyplot as plt
+from matplotlib import cm
 import skimage.transform
+import os.path
+import shutil
 
 class SOLOHead(nn.Module):
     def __init__(self,
@@ -410,7 +414,7 @@ class SOLOHead(nn.Module):
         cate_label_list = []
 
         # (for each image),compute meta data (object center region, etc)
-        N_obj = gt_bboxes_raw.shape[0]
+        N_obj, H_ori, W_ori = gt_masks_raw.shape
         obj_scale_list = []
         obj_center_list = []
         obj_center_regions = []
@@ -421,8 +425,9 @@ class SOLOHead(nn.Module):
             # compute \sqrt(wh)
             bbox = gt_bboxes_raw[obj_idx]
             obj_w, obj_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            obj_scale = torch.sqrt(obj_w * obj_h)
+            obj_scale = torch.sqrt((obj_w * W_ori) * (obj_h * H_ori))   # transform from normalized scale to input-image scale
             obj_scale_list.append(obj_scale)
+            assert obj_scale > 1
             # assign object instance
             for level_idx, level_range in enumerate(self.scale_ranges, 0):
                 if (obj_scale >= level_range[0]) and (obj_scale < level_range[1]):
@@ -457,9 +462,17 @@ class SOLOHead(nn.Module):
                 # set center point
                 x_min = max(obj_center_i[0].item() - 1, obj_region_i[0].item())
                 y_min = max(obj_center_i[1].item() - 1, obj_region_i[1].item())
-                x_max = max(obj_center_i[0].item() + 1, obj_region_i[2].item())
-                y_max = max(obj_center_i[1].item() + 1, obj_region_i[3].item())
+                x_max = min(obj_center_i[0].item() + 1, obj_region_i[2].item())
+                y_max = min(obj_center_i[1].item() + 1, obj_region_i[3].item())
+                assert x_min >= 0
+                assert y_min >= 0
+                assert x_max <= S
+                assert y_max <= S
+                x_max = min(x_max, S-1)         # for points on the boarder, assign them to the last cell
+                y_max = min(y_max, S-1)
+                x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(x_max), int(y_max)
                 # set cate map
+                # obj_label = gt_labels_raw[obj_idx].item()
                 cate_label_map[y_min : (y_max + 1), x_min : (x_max + 1)] = gt_labels_raw[obj_idx]
 
                 # set target mask and ins_ind_label
@@ -544,51 +557,77 @@ class SOLOHead(nn.Module):
                color_list,
                img):
         ## TODO: target image recover, for each image, recover their segmentation in 5 FPN levels.
+        # convert color_list to RGB ones
+        rgb_color_list = []
+        for color_str in color_list:
+            color_map = cm.ScalarMappable(cmap=color_str)
+            rgb_value = np.array(color_map.to_rgba(0))[:3]
+            rgb_color_list.append(rgb_value)
+
         ## This is an important visual check flag.
         for img_i in range(len(ins_gts_list)):
             img_single = img[img_i]         # (3,Ori_H, Ori_W) original color image
             for level_i in range(len(ins_gts_list[img_i])):
-                ins_gts = ins_gts_list[img_i, level_i]      # (S^2, 2H_f, 2W_f)
-                cate_gts = cate_gts_list[img_i, level_i]    # (S, S), {1,2,3}
-                ins_ind_gts = ins_ind_gts_list[img_i, level_i]  # (S^2)
+                ins_gts = ins_gts_list[img_i][level_i]      # (S^2, 2H_f, 2W_f)
+                cate_gts = cate_gts_list[img_i][level_i]    # (S, S), {1,2,3}
+                ins_ind_gts = ins_ind_gts_list[img_i][level_i]  # (S^2)
 
                 # synthesis the visualization for this level of FPN
-                fig,ax = plt.subplots(1)
-                img_vis = np.array(img_single.cpu().numpy())
-                ax.imshow(img_vis)
+                # img_vis = np.array(img_single.cpu().numpy())
+                # ax.imshow(img_vis.transpose((1, 2, 0)))
 
-                H_feat = ins_gts.shape[1] / 2
-                W_feat = ins_gts.shape[2] / 2
+                assert ins_gts.shape[1] % 2 == 0
+                assert ins_gts.shape[2] % 2 == 0
+                H_feat = int(ins_gts.shape[1] / 2)
+                W_feat = int(ins_gts.shape[2] / 2)
+                S = cate_gts.shape[0]
 
                 # for all active channel, extract the mask and sum up
-                mask_vis = np.zeros((3, 2 * H_feat, 2 * W_feat))
-                for flatten_idx in torch.nonzero(ins_ind_gts):
-                    grid_i = int(flatten_idx.item() / H_feat)
-                    grid_j = flatten_idx.item() % H_feat
+                mask_vis = np.zeros((2 * H_feat, 2 * W_feat, 3))
+                for flatten_tensor in torch.nonzero(ins_ind_gts, as_tuple=False):
+                    flatten_idx = flatten_tensor.item()
+                    grid_i = int(flatten_idx / S)
+                    grid_j = flatten_idx % S
                     obj_label = cate_gts[grid_i, grid_j]
                     assert obj_label != 0.0
 
-                    if obj_label == 1:  # car
-                        color_channel = 2
-                    elif obj_label == 2:  # people
-                        color_channel = 1
-                    elif obj_label == 3:
-                        color_channel = 0
-                    else:  # dataset can not handle
-                        raise RuntimeError("[ERROR] obj_label = {}".format(obj_label))
+                    # if obj_label == 1:  # car
+                    #     color_channel = 2
+                    # elif obj_label == 2:  # people
+                    #     color_channel = 1
+                    # elif obj_label == 3:
+                    #     color_channel = 0
+                    # else:  # dataset can not handle
+                    #     raise RuntimeError("[ERROR] obj_label = {}".format(obj_label))
+                    # mask_vis[color_channel] = mask_vis[color_channel] + ins_gts[flatten_idx].cpu().numpy()
 
-                    mask_vis[color_channel] = mask_vis[color_channel] + ins_gts[flatten_idx].cpu().numpy()
+                    # assign color
+                    rgb_color = rgb_color_list[obj_label - 1]       # (3,)
+                    # add mask to visualization image
+                    obj_mask = ins_gts[flatten_idx].cpu().numpy()   # (H_feat, W_feat, 3)
+                    obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)
+                    mask_vis = mask_vis + obj_mask_3 * rgb_color
+
 
                 # visualization
-                mask_vis_resized = skimage.transform.resize(mask_vis.transpose((1, 2, 0)),
-                                                            (img_single.shape[1], img_single.shape[0], 3))
-                img_vis = img_single.cpu().numpy()          # to numpy array
+                mask_vis_resized = skimage.transform.resize(mask_vis, (img_single.shape[1], img_single.shape[2], 3))
+
+                # base image to numpy array and perform transform
+                img_vis = img_single.cpu().numpy().transpose((1, 2, 0))
                 # use mask value if available, otherwise, use img value
                 img_vis = mask_vis_resized + img_vis * (mask_vis_resized == 0)
 
-                plt.imshow(img_vis)
-                plt.savefig("test_output.png")
+                fig, ax = plt.subplots(1)
+                ax.imshow(img_vis)
                 plt.show()
+
+                # save the file
+                saving_id = 1
+                saving_file = "plotgt_result/test_mask_{}_fpn_{}.png".format(saving_id, level_i)
+                while os.path.isfile(saving_file):
+                    saving_id = saving_id + 1
+                    saving_file = "plotgt_result/test_mask_{}_fpn_{}.png".format(saving_id, level_i)
+                plt.savefig(saving_file)
 
     # This function plot the inference segmentation in img
     # Input:
@@ -609,7 +648,7 @@ class SOLOHead(nn.Module):
 
 from backbone import *
 if __name__ == '__main__':
-    solo_head = SOLOHead(num_classes=4)
+    # solo_head = SOLOHead(num_classes=4)
     # file path and make a list
     imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
     masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
@@ -620,6 +659,13 @@ if __name__ == '__main__':
 #    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
 #    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
 #    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
+
+    # set up output dir (for plotGT)
+    try:
+        shutil.rmtree("plotgt_result")
+    except FileNotFoundError:
+        pass
+    os.makedirs("plotgt_result", exist_ok=True)
 
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     # load the data into data.Dataset
@@ -667,7 +713,9 @@ if __name__ == '__main__':
                                                                         mask_list)
         mask_color_list = ["jet", "ocean", "Spectral"]
         solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
-        break
-        
+        # break
+
+        if (iter > 20):
+            break
 
 
