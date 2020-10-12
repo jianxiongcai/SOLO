@@ -14,3 +14,7 @@ cd CODE_DIRECTORY
 python dataset.py
 python solo_head.py
 ```
+
+### Expected Outputs
+The expected outputs will be saving under directory 'testfig' and 'plotgt_results', in the current working directory.
+ 

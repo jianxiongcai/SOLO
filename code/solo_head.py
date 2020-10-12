@@ -446,10 +446,10 @@ class SOLOHead(nn.Module):
             obj_c_y, obj_c_x = obj_c_y / H_ori, obj_c_x / W_ori             # normalized coord
             obj_center_list.append(torch.tensor([obj_c_x, obj_c_y], dtype=torch.float))
             obj_center_regions.append(torch.tensor([
-                obj_c_x - obj_w / 2.0,
-                obj_c_y - obj_h / 2.0,
-                obj_c_x + obj_w / 2.0,
-                obj_c_y + obj_h / 2.0,
+                obj_c_x - self.epsilon * obj_w / 2.0,
+                obj_c_y - self.epsilon * obj_h / 2.0,
+                obj_c_x + self.epsilon * obj_w / 2.0,
+                obj_c_y + self.epsilon * obj_h / 2.0,
                 ], dtype=torch.float))
 
         # for each level, compute the cate_label,
@@ -652,10 +652,10 @@ if __name__ == '__main__':
     labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
     bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-#    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
-#    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
-#    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
-#    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
+    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = '/workspace/data/hw3_mycocodata_labels_comp_zlib.npy'
+    bboxes_path = '/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
     # set up output dir (for plotGT)
     try:
