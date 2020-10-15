@@ -338,7 +338,60 @@ class SOLOHead(nn.Module):
              ins_ind_gts_list,
              cate_gts_list):
         ## TODO: compute loss, vecterize this part will help a lot. To avoid potential ill-conditioning, if necessary, add a very small number to denominator for focalloss and diceloss computation.
-        pass
+        ## uniform the expression for ins_gts & ins_preds
+        # ins_gts: list, len(fpn), (active_across_batch, 2H_feat, 2W_feat)
+        # ins_preds: list, len(fpn), (active_across_batch, 2H_feat, 2W_feat)
+        bz = len(ins_gts_list)
+        fpn=len(ins_gts_list[0])
+        ##--------------something might be wrong with this block of code(Junfan)--------------------------------------------------
+        ins_gts = [torch.cat([ins_labels_level_img[ins_ind_labels_level_img, ...]   #
+                for ins_labels_level_img, ins_ind_labels_level_img in 
+                zip(ins_labels_level, ins_ind_labels_level)], 0)
+            for ins_labels_level, ins_ind_labels_level in 
+            zip(zip(*ins_gts_list), zip(*ins_ind_gts_list))]  # list, len(fpn), each(bz*num_grid*num_grid, 2H_feat, 2W_feat)  int64
+        #---------------------------------------------------------------------------------------------------------------------------                
+        ins_preds = [torch.cat([ins_preds_level_img[ins_ind_labels_level_img, ...]
+                for ins_preds_level_img, ins_ind_labels_level_img in 
+                zip(ins_preds_level, ins_ind_labels_level)], 0)
+            for ins_preds_level, ins_ind_labels_level in 
+            zip(ins_pred_list, zip(*ins_ind_gts_list))]     # list, len(fpn), each(bz*num_grid*num_grid, 2H_feat, 2W_feat) float32
+        ## uniform the expression for cate_gts & cate_preds
+        # cate_gts: (bz*fpn*S^2,), img, fpn, grids
+        # cate_preds: (bz*fpn*S^2, C-1), ([img, fpn, grids], C-1)
+        cate_gts = [torch.cat([cate_gts_level_img.flatten() for cate_gts_level_img in cate_gts_level]) for cate_gts_level in zip(*cate_gts_list)]  #list, len()=5,each(bz*S*S,) for each level int64      
+        layer_cate_gts = cate_gts    #list len(fpn)   #(bz*S^2,) torch.long       
+        cate_gts = torch.cat(cate_gts)  #(7744,) torch {0,1,2,3}   int64
+               
+        cate_preds = [cate_pred_level.permute(0,2,3,1).reshape(-1, self.cate_out_channels) for cate_pred_level in cate_pred_list]   #list, len()=5,each(bz*S*S,3) for each level       
+        cate_preds = torch.cat(cate_preds, 0)    #(7744,3) torch   [0~1] float32
+        
+        cate_loss= self.FocalLoss(cate_preds, cate_gts)
+               
+        s_total=0
+        n_total=0
+        for layer_idx in range(fpn):
+#            s=self.num_grids[layer_idx]
+            active_k=layer_cate_gts[layer_idx].nonzero().long()
+            N_pos=active_k.shape[0]
+            if N_pos==0:
+                continue          
+            active_k=active_k.numpy().tolist()       
+            active_mask_pred=ins_preds[layer_idx][active_k,:].squeeze()
+            active_mask_target=ins_gts[layer_idx][active_k,:].squeeze()
+            d_mask=map(self.DiceLoss,active_mask_pred,active_mask_target)
+            d_mask=list(d_mask)
+            d_mask_sum=sum(d_mask)
+            s_total+=d_mask_sum
+            n_total+=N_pos
+#            gird_i=((active_k%(s*s))//s).numpy().tolist()
+#            gird_j=((active_k%(s*s))%s).numpy().tolist()
+#            bz_idx=(active_k//(s*s)).numpy().tolist() 
+        mask_loss=s_total/(n_total+1e-9)
+        print(mask_loss)
+        
+        total_loss=cate_loss+self.mask_loss_cfg["weight"]*mask_loss
+            
+        return cate_loss, mask_loss, total_loss
 
 
 
@@ -349,8 +402,11 @@ class SOLOHead(nn.Module):
     # Output: dice_loss, scalar
     def DiceLoss(self, mask_pred, mask_gt):
         ## TODO: compute DiceLoss
-        pass
-
+        numerator=2*torch.sum(mask_pred*mask_gt)
+        denominator=torch.sum(torch.pow(mask_pred,2) + torch.pow(mask_gt,2)) + 1e-9
+        dice=numerator/denominator
+        return (1-dice)
+        
     # This function compute the cate loss
     # Input:
         # cate_preds: (num_entry, C-1)
@@ -358,7 +414,29 @@ class SOLOHead(nn.Module):
     # Output: focal_loss, scalar
     def FocalLoss(self, cate_preds, cate_gts):
         ## TODO: compute focalloss
-        pass
+        alpha = self.cate_loss_cfg['alpha']
+        gamma = self.cate_loss_cfg['gamma']
+        N=cate_preds.shape[0]
+        C=cate_preds.shape[1]+1
+        cate_preds = cate_preds.flatten() #torch.float   [N*(c-1),]
+    
+        idx_row=list(np.arange(0,N))
+        idx_col=list(cate_gts.long().numpy())
+        one_hot_raw=torch.zeros((N,C)).long()
+        one_hot_raw[idx_row,idx_col]=torch.Tensor([1]).long()
+        one_hot=one_hot_raw[:,1:]
+        one_hot=one_hot.flatten()               #N*(c-1)
+    
+        m=one_hot.shape[0]
+        p_1=cate_preds[one_hot.nonzero()]
+        p=cate_preds[one_hot==0]
+    
+        y_1= - torch.sum(alpha * torch.pow(1-p_1,gamma) *torch.log(p_1))
+        y = - torch.sum((1 - alpha) * torch.pow(p, gamma) * torch.log(1-p))
+        focal_loss = y_1 + y
+        
+        return focal_loss/(m+1e-9)
+        
 
     def MultiApply(self, func, *args, **kwargs):
         pfunc = partial(func, **kwargs) if kwargs else func
@@ -459,8 +537,8 @@ class SOLOHead(nn.Module):
             assert len(feat_size) == 2
             # cate label map / ins_label_list
             cate_label_map = torch.zeros((S, S), dtype=torch.long)          #40,40
-            ins_label_map = torch.zeros((S * S, feat_size[0], feat_size[1]), dtype=torch.float)  #1600,200,272
-            ins_ind_label = torch.zeros((S * S), dtype=torch.float)      # 1600
+            ins_label_map = torch.zeros((S * S, feat_size[0], feat_size[1]), dtype=torch.long)  #1600,200,272
+            ins_ind_label = torch.zeros((S * S), dtype=torch.long)      # 1600
             # obj_idx w.r.t. gt_labels_raw / gt_bbox_raw
             for obj_idx in obj_indice[level_idx]:       # perfix i denotes grid cell index here
                 # the 2D grid index where the center region boundary fall in
@@ -558,9 +636,9 @@ class SOLOHead(nn.Module):
         # img: (bz,3,Ori_H, Ori_W)
         ## self.strides: [8,8,16,32,32]
     def PlotGT(self,
-               ins_gts_list,
-               ins_ind_gts_list,
-               cate_gts_list,
+               ins_gts_list,  #mask_label_list
+               ins_ind_gts_list,  #mask_index_label_list
+               cate_gts_list,   #category_label_list
                color_list,
                img):
         ## TODO: target image recover, for each image, recover their segmentation in 5 FPN levels.
@@ -590,7 +668,7 @@ class SOLOHead(nn.Module):
                 S = cate_gts.shape[0]
 
                 # for all active channel, extract the mask and sum up
-                mask_vis = np.zeros((2 * H_feat, 2 * W_feat, 3))
+                mask_vis = np.zeros((2 * H_feat, 2 * W_feat, 3))        # (2*H_feat, 2*W_feat, 3)
                 for flatten_tensor in torch.nonzero(ins_ind_gts, as_tuple=False):
                     flatten_idx = flatten_tensor.item()
                     grid_i = int(flatten_idx / S)
@@ -601,8 +679,8 @@ class SOLOHead(nn.Module):
                     # assign color
                     rgb_color = rgb_color_list[obj_label - 1]       # (3,)
                     # add mask to visualization image
-                    obj_mask = ins_gts[flatten_idx].cpu().numpy()   # (H_feat, W_feat, 3)
-                    obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)
+                    obj_mask = ins_gts[flatten_idx].cpu().numpy()   # (2*H_feat, 2*W_feat)
+                    obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (2*H_feat, 2*W_feat, 3)
                     mask_vis = mask_vis + obj_mask_3 * rgb_color
 
 
@@ -647,15 +725,15 @@ from backbone import *
 if __name__ == '__main__':
     # solo_head = SOLOHead(num_classes=4)
     # file path and make a list
-#    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
-#    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
-#    labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
-#    bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
+    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
+    bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-    imgs_path = '../../workspace/data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = '../../workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = '../../workspace/data/hw3_mycocodata_labels_comp_zlib.npy'
-    bboxes_path = '../../workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy'
+#    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
+#    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
+#    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
+#    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
     # set up output dir (for plotGT)
     try:
@@ -708,17 +786,23 @@ if __name__ == '__main__':
         # make the target
 
 
-        ## demo
-        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False)
+        ## demo   
+        #cate_pred_list[0]:bz, 3, num_grid,num_grid    len(cate_pred_list)=5               value [0,1]
+        #ins_pred_list[0]:bz, num_grid^2, 2*H_feat, 2*W_feat   len(cate_pred_list)=5       value [0,1]
+        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
+        
+        # len(ins_gts_list[0])=5, ins_gts_list[0][0]:num_grid^2, 2*H_feat, 2*W_feat   len(ins_gts_list)=bz   value:0 or 1
+        # len(ins_ind_gts_list[0])=5, ins_gts_list[0][0]:num_grid^2   len(ins_ind_gts_list)=bz   value:0 or 1
+        # len(cate_gts_list[0])=5, cate_gts_list[0][0]:num_grid,num_grid   len(ins_gts_list)=bz   value:0,1,2
         ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                         bbox_list,
                                                                         label_list,
                                                                         mask_list)
-        mask_color_list = ["jet", "ocean", "Spectral"]
-        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
-        # break
-
-        if (iter > 40):
-            break
-
+#        mask_color_list = ["jet", "ocean", "Spectral"]
+#        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
+#        # break
+#
+#        if (iter > 40):
+#            break
+        cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)
 
