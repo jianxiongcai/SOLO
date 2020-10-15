@@ -343,18 +343,16 @@ class SOLOHead(nn.Module):
         # ins_preds: list, len(fpn), (active_across_batch, 2H_feat, 2W_feat)
         bz = len(ins_gts_list)
         fpn=len(ins_gts_list[0])
-        ##--------------something might be wrong with this block of code(Junfan)--------------------------------------------------
         ins_gts = [torch.cat([ins_labels_level_img[ins_ind_labels_level_img, ...]   #
                 for ins_labels_level_img, ins_ind_labels_level_img in 
                 zip(ins_labels_level, ins_ind_labels_level)], 0)
             for ins_labels_level, ins_ind_labels_level in 
-            zip(zip(*ins_gts_list), zip(*ins_ind_gts_list))]  # list, len(fpn), each(bz*num_grid*num_grid, 2H_feat, 2W_feat)  int64
-        #---------------------------------------------------------------------------------------------------------------------------                
+            zip(zip(*ins_gts_list), zip(*ins_ind_gts_list))]  # list, len(fpn), each(active_across_batch, 2H_feat, 2W_feat)  int64              
         ins_preds = [torch.cat([ins_preds_level_img[ins_ind_labels_level_img, ...]
                 for ins_preds_level_img, ins_ind_labels_level_img in 
                 zip(ins_preds_level, ins_ind_labels_level)], 0)
             for ins_preds_level, ins_ind_labels_level in 
-            zip(ins_pred_list, zip(*ins_ind_gts_list))]     # list, len(fpn), each(bz*num_grid*num_grid, 2H_feat, 2W_feat) float32
+            zip(ins_pred_list, zip(*ins_ind_gts_list))]     # list, len(fpn), each(active_across_batch, 2H_feat, 2W_feat) float32
         ## uniform the expression for cate_gts & cate_preds
         # cate_gts: (bz*fpn*S^2,), img, fpn, grids
         # cate_preds: (bz*fpn*S^2, C-1), ([img, fpn, grids], C-1)
@@ -376,8 +374,8 @@ class SOLOHead(nn.Module):
             if N_pos==0:
                 continue          
             active_k=active_k.numpy().tolist()       
-            active_mask_pred=ins_preds[layer_idx][active_k,:].squeeze()
-            active_mask_target=ins_gts[layer_idx][active_k,:].squeeze()
+            active_mask_pred=ins_preds[layer_idx]
+            active_mask_target=ins_gts[layer_idx]
             d_mask=map(self.DiceLoss,active_mask_pred,active_mask_target)
             d_mask=list(d_mask)
             d_mask_sum=sum(d_mask)
@@ -387,7 +385,6 @@ class SOLOHead(nn.Module):
 #            gird_j=((active_k%(s*s))%s).numpy().tolist()
 #            bz_idx=(active_k//(s*s)).numpy().tolist() 
         mask_loss=s_total/(n_total+1e-9)
-        print(mask_loss)
         
         total_loss=cate_loss+self.mask_loss_cfg["weight"]*mask_loss
             
@@ -538,7 +535,7 @@ class SOLOHead(nn.Module):
             # cate label map / ins_label_list
             cate_label_map = torch.zeros((S, S), dtype=torch.long)          #40,40
             ins_label_map = torch.zeros((S * S, feat_size[0], feat_size[1]), dtype=torch.long)  #1600,200,272
-            ins_ind_label = torch.zeros((S * S), dtype=torch.long)      # 1600
+            ins_ind_label = torch.zeros((S * S), dtype=torch.bool)      # 1600
             # obj_idx w.r.t. gt_labels_raw / gt_bbox_raw
             for obj_idx in obj_indice[level_idx]:       # perfix i denotes grid cell index here
                 # the 2D grid index where the center region boundary fall in
@@ -566,7 +563,7 @@ class SOLOHead(nn.Module):
                 for i in range(y_min, y_max + 1):
                     for j in range(x_min, x_max + 1):
                         ins_label_map[i * S + j] = mask_resized
-                        ins_ind_label[i * S + j] = 1.0
+                        ins_ind_label[i * S + j] = True
 
             # prepare res
             cate_label_list.append(cate_label_map)
