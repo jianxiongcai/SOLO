@@ -592,7 +592,36 @@ class SOLOHead(nn.Module):
                     ori_size):
 
         ## TODO: finish PostProcess
-        pass
+        # DONE
+        bz = ins_pred_list[0].shape[0]
+        NMS_sorted_scores_list = []
+        NMS_sorted_cate_label_list = []
+        NMS_sorted_ins_list = []
+
+        # todo: (multi-apply)
+        N_fpn = len(ins_pred_list)
+        assert N_fpn == len(cate_pred_list)
+        for img_i in range(bz):
+            # re-arranged inputs
+            # (all_level_S^2, ori_H/4, ori_W/4)
+            ins_pred_img = torch.cat([ins_pred_list[i][img_i] for i in range(N_fpn)], dim=0)
+
+            tmp_list = []
+            for fpn_i in range(N_fpn):
+                cate_pred = cate_pred_list[fpn_i][img_i]        # (S,S,C-1)
+                S_1, S_2, C = cate_pred.shape
+                tmp_x = cate_pred.permute(C, S_1, S_2).view(C, S_1 * S_2)       # (C, S_1 * S_2)
+                tmp_list.append(tmp_x.permute(1, 0))
+            # (all_level_S^2, C-1)
+            cate_pred_img = torch.cat(tmp_list, dim=0)
+
+            # post-processing
+            NMS_sorted_scores, NMS_sorted_cate_label, NMS_sorted_ins = self.PostProcessImg(ins_pred_img, cate_pred_img, ori_size)
+            NMS_sorted_scores_list.append(NMS_sorted_scores)
+            NMS_sorted_cate_label_list.append(NMS_sorted_cate_label)
+            NMS_sorted_ins_list.append(NMS_sorted_ins)
+
+        return NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list
 
 
     # This function Postprocess on single img
@@ -609,7 +638,51 @@ class SOLOHead(nn.Module):
                        ori_size):
 
         ## TODO: PostProcess on single image.
-        pass
+        # active category pred map (binary map)
+        # scores_max: (all_level_S^2, )
+        # scores_labels: (all_level_S^2, )
+        scores_max, scores_labels = torch.max(cate_pred_img, dim=1)         # prediction confidence and label
+        cate_indicator = scores_max > self.postprocess_cfg['cate_thresh']
+        # zero-out low confidence prediction
+        scores_max = scores_max * cate_indicator
+
+        # active mask pixels, binary (all_level_S^2, ori_H/4, ori_W/4)
+        indicator_map = ins_pred_img > self.postprocess_cfg['ins_thresh']
+        # (all_level_S^2, )
+        coeff = torch.sum(ins_pred_img * indicator_map, dim=(1, 2)) / torch.sum(indicator_map, dim=(1, 2))
+        assert coeff.ndim == 1
+        assert coeff.shape[0] == ins_pred_img.shape[0]
+        # (all_level_S^2, )
+        scores = coeff * scores_max
+
+        # only do NMS on active ones
+        ins_act_bin = indicator_map[cate_indicator]         # binary (n_act, ori_H/4, ori_W/4)
+        ins_act = ins_pred_img[cate_indicator]
+        scores_act = scores[cate_indicator]
+        labels_act = scores_labels[cate_indicator]
+
+        # score-sorting
+        _, sorted_indice = torch.sort(scores_act, descending=True)
+        sorted_score = scores_act[sorted_indice]        # Note: should be of descending order
+        sorted_label = labels_act[sorted_indice]
+        sorted_ins_bin = ins_act_bin[sorted_indice]
+        sorted_ins = ins_act[sorted_indice]
+
+        # apply MatrixNMS
+        # Note: sorted_ins is binary mask
+        scores_nms = self.MatrixNMS(sorted_ins_bin, sorted_score)
+
+        # keep the biggest N instances
+        _, max_indice = torch.max(scores_nms)
+        NMS_sorted_scores = scores_nms[max_indice]
+        NMS_sorted_cate_label = sorted_label[max_indice]
+        # resize to H_ori, W_ori
+        # (C, H, W)
+        resized_mask = torch.nn.functional.interpolate(sorted_ins[max_indice].unsqueeze(0), scale_factor=(4, 4))
+        resized_mask = resized_mask.squeeze(0)
+        NMS_sorted_ins = resized_mask
+
+        return NMS_sorted_scores, NMS_sorted_cate_label, NMS_sorted_ins
 
     # This function perform matrix NMS
     # Input:
@@ -617,9 +690,41 @@ class SOLOHead(nn.Module):
         # sorted_scores: (n_act,)
     # Output:
         # decay_scores: (n_act,)
-    def MatrixNMS(self, sorted_ins, sorted_scores, method='gauss', gauss_sigma=0.5):
+    def MatrixNMS(self, sorted_ins: torch.Tensor, sorted_scores, method='gauss', gauss_sigma=0.5):
         ## TODO: finish MatrixNMS
-        pass
+        # TODO: Note (jianxiong): 1) inputs are sorted 2) ins are hard (0/1)
+        # Note 2: the first one is with the highest score (maskness * conf)
+        # Helper function: activation fucntion f(iou_x)
+        def act_func(x, method, gauss_sigma):
+            if method == 'gauss':
+                return torch.exp(-1 * torch.pow(x, 2) / gauss_sigma)
+            else:
+                return 1 - x
+
+        # following the elegant implementation of SOLOv2
+        N_act, H_4, W_4 = sorted_ins.shape
+        ins_flatten = sorted_ins.view(N_act, H_4 * W_4)
+        # compute IoU for pair (i, j)
+        intersactions = torch.matmul(ins_flatten, ins_flatten.transpose(0, 1))      # (N_act, N_act)
+        mask_areas = torch.sum(ins_flatten, dim=1)                  # (N,)
+        mask_areas = mask_areas.expand(N_act, N_act)                # (N, N)
+        unions = mask_areas + mask_areas.transpose(0, 1) - intersactions
+        ious = intersactions / unions
+        # only S_k > S_j
+        ious = ious.triu(diagonal=1)                                # (N, N) upper tri
+
+        # column max: min(f_iou(,i))
+        ious_i_max, _ = torch.max(ious, dim=0)
+        ious_i_max = ious_i_max.expand(N_act, N_act).transpose(0, 1)        # align with f_iou(,i)
+
+        # compute the decay
+        # (n_act,)
+        decay = torch.min(act_func(ious, method, gauss_sigma) / act_func(ious_i_max, method, gauss_sigma), dim=0)
+
+        # update score
+        decay_scores = sorted_scores * decay
+        return decay_scores
+
 
     # -----------------------------------
     ## The following code is for visualization
@@ -716,7 +821,50 @@ class SOLOHead(nn.Module):
                   img,
                   iter_ind):
         ## TODO: Plot predictions
-        pass
+
+        # convert color_list to RGB ones
+        rgb_color_list = []
+        for color_str in color_list:
+            color_map = cm.ScalarMappable(cmap=color_str)
+            rgb_value = np.array(color_map.to_rgba(0))[:3]
+            rgb_color_list.append(rgb_value)
+
+        for img_i, data in enumerate(zip(NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list, img), 0):
+            # score: (keep_instance,)
+            # cate_label: (keep_instance,)
+            # ins: (keep_instance, ori_H, ori_W)
+            score, cate_label, ins, img_single = data
+            img_vis = img_single.cpu().numpy().transpose((1, 2, 0))     # (H, W, 3)
+
+            # overlap all instance's mask to mask_vis (with color)
+            mask_vis = np.zeros_like(img_vis)               # (H, W, 3)
+            for ins_id in range(len(score)):
+                obj_label = cate_label[ins_id]
+                obj_mask = ins[ins_id].cpu().numpy()        # (H, W)
+
+                # assign color
+                rgb_color = rgb_color_list[obj_label - 1]  # (3,)
+                # add mask to visualization image
+                obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (H, W, 3)
+                mask_vis = mask_vis + obj_mask_3 * rgb_color
+
+            ins_bin = ins >= self.postprocess_cfg['ins_thresh']
+            # use mask value if available, otherwise, use img value
+            img_vis = mask_vis + img_vis * (mask_vis == 0)
+
+            # visualize
+            fig, ax = plt.subplots(1)
+            ax.imshow(img_vis)
+            plt.show()
+
+            # save the file
+            saving_id = 1
+            saving_file = "infer_result/batch_{}_img_{}.png".format(iter_ind, img_i)
+            while os.path.isfile(saving_file):
+                saving_id = saving_id + 1
+                saving_file = "infer_result/batch_{}_img_{}.png".format(iter_ind, img_i)
+            plt.savefig(saving_file)
+
 
 from backbone import *
 if __name__ == '__main__':
