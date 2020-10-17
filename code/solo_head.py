@@ -641,32 +641,37 @@ class SOLOHead(nn.Module):
         # active category pred map (binary map)
         # scores_max: (all_level_S^2, )
         # scores_labels: (all_level_S^2, )
-        scores_max, scores_labels = torch.max(cate_pred_img, dim=1)         # prediction confidence and label
-        cate_indicator = scores_max > self.postprocess_cfg['cate_thresh']
+        scores_raw, labels_raw = torch.max(cate_pred_img, dim=1)         # prediction confidence and label
+        cate_indicator =  scores_raw > self.postprocess_cfg['cate_thresh']
         # zero-out low confidence prediction
-        scores_max = scores_max * cate_indicator
+        scores_raw = scores_raw * cate_indicator
 
+        # compute: scores = scores_raw * maskness
         # active mask pixels, binary (all_level_S^2, ori_H/4, ori_W/4)
         indicator_map = ins_pred_img > self.postprocess_cfg['ins_thresh']
         # (all_level_S^2, )
-        coeff = torch.sum(ins_pred_img * indicator_map, dim=(1, 2)) / torch.sum(indicator_map, dim=(1, 2))
+        sum_1 = torch.sum(ins_pred_img * indicator_map, dim=(1, 2))
+        sum_2 = torch.sum(indicator_map, dim=(1, 2)) + 1e-8
+        coeff =  sum_1 / sum_2
         assert coeff.ndim == 1
         assert coeff.shape[0] == ins_pred_img.shape[0]
         # (all_level_S^2, )
-        scores = coeff * scores_max
+        scores = coeff * scores_raw
 
-        # only do NMS on active ones
-        ins_act_bin = indicator_map[cate_indicator]         # binary (n_act, ori_H/4, ori_W/4)
-        ins_act = ins_pred_img[cate_indicator]
-        scores_act = scores[cate_indicator]
-        labels_act = scores_labels[cate_indicator]
+        # only do NMS on active ones only
+        # ins_act_bin = indicator_map[cate_indicator]         # binary (n_act, ori_H/4, ori_W/4)
+        # ins_act = ins_pred_img[cate_indicator]
+        # scores_act = scores[cate_indicator]
+        # labels_act = scores_labels[cate_indicator]
 
         # score-sorting
-        _, sorted_indice = torch.sort(scores_act, descending=True)
-        sorted_score = scores_act[sorted_indice]        # Note: should be of descending order
-        sorted_label = labels_act[sorted_indice]
-        sorted_ins_bin = ins_act_bin[sorted_indice]
-        sorted_ins = ins_act[sorted_indice]
+        _, sorted_indice = torch.sort(scores, descending=True)
+        sorted_indice = sorted_indice[self.postprocess_cfg['pre_NMS_num']]
+        assert len(sorted_indice) == self.postprocess_cfg['pre_NMS_num']
+        sorted_score = scores[sorted_indice]        # Note: should be of descending order
+        sorted_label = labels_raw[sorted_indice]
+        sorted_ins_bin = indicator_map[sorted_indice]       # hard binary mask
+        sorted_ins = ins_pred_img[sorted_indice]
 
         # apply MatrixNMS
         # Note: sorted_ins is binary mask
@@ -674,6 +679,7 @@ class SOLOHead(nn.Module):
 
         # keep the biggest N instances
         _, max_indice = torch.max(scores_nms)
+        max_indice = max_indice[0:self.postprocess_cfg['keep_instance']]
         NMS_sorted_scores = scores_nms[max_indice]
         NMS_sorted_cate_label = sorted_label[max_indice]
         # resize to H_ori, W_ori
@@ -683,6 +689,33 @@ class SOLOHead(nn.Module):
         NMS_sorted_ins = resized_mask
 
         return NMS_sorted_scores, NMS_sorted_cate_label, NMS_sorted_ins
+
+    def MatrixIOU(self, sorted_ins_1, sorted_ins_2):
+        """
+        compute the iou for each mask in sorted_ins_1 w.r.t each one in sorted_ins_2
+        :param sorted_ins_1: N * H * W. binary 0/1 mask
+        :param sorted_ins_2: M * H * W. binary 0/1 mask
+        :return:
+            H * W metric (A). A[i, j] = IoU(sorted_ins_1[i], sorted_ins_2[j])
+        """
+        N, H, W = sorted_ins_1.shape
+        M = sorted_ins_2.shape[0]
+        assert sorted_ins_2.shape[1] == H
+        assert sorted_ins_2.shape[2] == W
+
+        ins_flatten_1 = sorted_ins_1.view(N, H * W)
+        ins_flatten_2 = sorted_ins_2.view(M, H * W)
+        # compute IoU for pair (i, j)
+        # (N * W)
+        intersactions = torch.matmul(ins_flatten_1, ins_flatten_2.transpose(0, 1))  # (N_act, N_act)
+        # Area(i, j) = Area_i + Area_j
+        mask_areas_1 = torch.sum(ins_flatten_1, dim=1)                          # (N,)
+        mask_areas_1 = mask_areas_1.expand(M, N).transpose(0, 1)                # (N, M)
+        mask_areas_2 = torch.sum(ins_flatten_2, dim=1)                          # (N,)
+        mask_areas_2 = mask_areas_2.expand(N, M)                                # (N, M)
+        unions = mask_areas_1 + mask_areas_2 - intersactions + 1e-8
+        ious = intersactions / unions
+        return ious
 
     # This function perform matrix NMS
     # Input:
@@ -703,13 +736,9 @@ class SOLOHead(nn.Module):
 
         # following the elegant implementation of SOLOv2
         N_act, H_4, W_4 = sorted_ins.shape
-        ins_flatten = sorted_ins.view(N_act, H_4 * W_4)
-        # compute IoU for pair (i, j)
-        intersactions = torch.matmul(ins_flatten, ins_flatten.transpose(0, 1))      # (N_act, N_act)
-        mask_areas = torch.sum(ins_flatten, dim=1)                  # (N,)
-        mask_areas = mask_areas.expand(N_act, N_act)                # (N, N)
-        unions = mask_areas + mask_areas.transpose(0, 1) - intersactions
-        ious = intersactions / unions
+
+        # compute IoU with each possible pair. The result should be a symmetric matrix
+        ious = self.MatrixIOU(sorted_ins, sorted_ins)
         # only S_k > S_j
         ious = ious.triu(diagonal=1)                                # (N, N) upper tri
 
