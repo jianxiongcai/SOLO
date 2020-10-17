@@ -34,11 +34,6 @@ bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 #    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
 # set up output dir (for plotGT)
-try:
-    shutil.rmtree("plotgt_result")
-except FileNotFoundError:
-    pass
-os.makedirs("plotgt_result", exist_ok=True)
 
 paths = [imgs_path, masks_path, labels_path, bboxes_path]
 # load the data into data.Dataset
@@ -49,9 +44,13 @@ train_size = int(full_size * 0.8)
 test_size = full_size - train_size
 
 torch.random.manual_seed(1)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+np.random.seed(0)
+
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
-batch_size = 16
+batch_size = 2
 train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 train_loader = train_build_loader.loader()
 test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -66,7 +65,7 @@ resnet50_fpn = resnet50_fpn.to(device)
 solo_head = solo_head.to(device)
 
 num_epochs = 36
-optimizer = optim.SGD(solo_head.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
+optimizer = optim.SGD(solo_head.parameters(), lr=0.01/8, momentum=0.9, weight_decay=0.0001)
 scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[27,33], gamma=0.1)
 train_cate_losses=[]
 train_mask_losses=[]
@@ -110,10 +109,10 @@ for epoch in range(num_epochs):
             train_cate_losses.append(log_cate_loss)
             train_mask_losses.append(log_mask_loss)
             train_total_losses.append(log_total_loss)
-        print('\nIteration:{} Avg. train total loss: {:.4f}'.format(iter+1, log_total_loss))
-        running_cate_loss = 0.0
-        running_mask_loss = 0.0
-        running_total_loss = 0.0
+            print('\nIteration:{} Avg. train total loss: {:.4f}'.format(iter+1, log_total_loss))
+            running_cate_loss = 0.0
+            running_mask_loss = 0.0
+            running_total_loss = 0.0
 
     path = './train_check_point/solo_epoch_'+str(epoch)
     torch.save({
@@ -126,30 +125,32 @@ for epoch in range(num_epochs):
     test_running_cate_loss = 0.0    
     test_running_mask_loss=0.0
     test_running_total_loss=0.0
-
-    for iter, data in enumerate(test_loader, 0):   
-        img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
-        img = img.to(device)           
-        backout = resnet50_fpn(img)
-        fpn_feat_list = list(backout.values())
-        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
-        ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
-                                                                bbox_list,
-                                                                label_list,
-                                                                mask_list)
-        ins_gts_list, ins_ind_gts_list, cate_gts_list = ins_gts_list.to(device), ins_ind_gts_list.to(device) , cate_gts_list.to(device)  
-        cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)
-        test_running_cate_loss += cate_loss.item()
-        test_running_mask_loss += mask_loss.item()
-        test_running_total_loss += total_loss.item()
-        
-    epoch_cate_loss = test_running_cate_loss / len(test_loader.dataset)
-    epoch_mask_loss = test_running_mask_loss / len(test_loader.dataset)
-    epoch_total_loss = test_running_total_loss / len(test_loader.dataset)
-    print('\nEpoch:{} Avg. test loss: {:.4f}\n'.format(epoch + 1, epoch_total_loss))
-    test_cate_losses.append(epoch_cate_loss)
-    test_mask_losses.append(epoch_mask_loss)
-    test_total_losses.append(epoch_total_loss)
+    
+    
+    with torch.no_grad():
+        for iter, data in enumerate(test_loader, 0):   
+            img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
+            img = img.to(device)           
+            backout = resnet50_fpn(img)
+            fpn_feat_list = list(backout.values())
+            cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
+            ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
+                                                                    bbox_list,
+                                                                    label_list,
+                                                                    mask_list)
+            ins_gts_list, ins_ind_gts_list, cate_gts_list = ins_gts_list.to(device), ins_ind_gts_list.to(device) , cate_gts_list.to(device)  
+            cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)
+            test_running_cate_loss += cate_loss.item()
+            test_running_mask_loss += mask_loss.item()
+            test_running_total_loss += total_loss.item()
+            
+        epoch_cate_loss = test_running_cate_loss / len(test_loader.dataset)
+        epoch_mask_loss = test_running_mask_loss / len(test_loader.dataset)
+        epoch_total_loss = test_running_total_loss / len(test_loader.dataset)
+        print('\nEpoch:{} Avg. test loss: {:.4f}\n'.format(epoch + 1, epoch_total_loss))
+        test_cate_losses.append(epoch_cate_loss)
+        test_mask_losses.append(epoch_mask_loss)
+        test_total_losses.append(epoch_total_loss)
     
     scheduler.step()
     
