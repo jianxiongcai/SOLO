@@ -418,7 +418,7 @@ class SOLOHead(nn.Module):
         cate_preds = cate_preds.flatten() #torch.float   [N*(c-1),]
     
         idx_row=list(np.arange(0,N))
-        idx_col=list(cate_gts.long().numpy())
+        idx_col=list(cate_gts.long().cpu().numpy())
         one_hot_raw=torch.zeros((N,C), device=cate_preds.device, dtype=torch.long)
         one_hot_raw[idx_row,idx_col] = 1
         one_hot=one_hot_raw[:,1:]

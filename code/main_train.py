@@ -50,7 +50,7 @@ np.random.seed(0)
 
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
-batch_size = 2
+batch_size = 1
 train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 train_loader = train_build_loader.loader()
 test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
