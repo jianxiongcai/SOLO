@@ -46,6 +46,7 @@ np.random.seed(0)
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
 eval_epoch = 1
+print("[INFO] eval epoch: {}".format(eval_epoch))
 batch_size = 2
 # train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 # train_loader = train_build_loader.loader()
@@ -82,29 +83,28 @@ solo_head = solo_head.to(device)
 # os.makedirs("logs", exist_ok=True)
 # writer = SummaryWriter(log_dir="logs")
 
-for epoch in range(num_epochs):
-    solo_head.eval()
-    
-    with torch.no_grad():
-        for iter, data in enumerate(test_loader, 0):   
-            img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
-            img = img.to(device)  
-            label_list = [x.to(device) for x in label_list]
-            mask_list = [x.to(device) for x in mask_list]
-            bbox_list = [x.to(device) for x in bbox_list]
+solo_head.eval()
 
-            backout = resnet50_fpn(img)
-            # del img
-            fpn_feat_list = list(backout.values())
-            cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=True)
-            # del fpn_feat_list
-            # ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
-            #                                                         bbox_list,
-            #                                                         label_list,
-            #                                                         mask_list)
+with torch.no_grad():
+    for iter, data in enumerate(test_loader, 0):
+        img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
+        img = img.to(device)
+        label_list = [x.to(device) for x in label_list]
+        mask_list = [x.to(device) for x in mask_list]
+        bbox_list = [x.to(device) for x in bbox_list]
 
-            # post-processing
-            NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list = solo_head.PostProcess(ins_pred_list, cate_pred_list, (img.shape[2], img.shape[3]))
+        backout = resnet50_fpn(img)
+        # del img
+        fpn_feat_list = list(backout.values())
+        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=True)
+        # del fpn_feat_list
+        # ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
+        #                                                         bbox_list,
+        #                                                         label_list,
+        #                                                         mask_list)
 
-            # plotgt
-            break
+        # post-processing
+        NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list = solo_head.PostProcess(ins_pred_list, cate_pred_list, (img.shape[2], img.shape[3]))
+
+        # plotgt
+        break
