@@ -94,7 +94,12 @@ for epoch in range(num_epochs):
         ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                         bbox_list,
                                                                         label_list,
-                                                                        mask_list)    
+                                                                        mask_list)  
+        print(cate_pred_list.device)
+        print(ins_pred_list.device)
+        print(ins_gts_list.device)
+        print(ins_ind_gts_list.device)
+        print(cate_gts_list.device)
         cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)  #batch loss
         total_loss.backward()
         optimizer.step()
@@ -142,11 +147,7 @@ for epoch in range(num_epochs):
                                                                     bbox_list,
                                                                     label_list,
                                                                     mask_list)
-            print(cate_pred_list.device)
-            print(ins_pred_list.device)
-            print(ins_gts_list.device)
-            print(ins_ind_gts_list.device)
-            print(cate_gts_list.device)
+
             cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)
             
             test_running_cate_loss += cate_loss.item()
