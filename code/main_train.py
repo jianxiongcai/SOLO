@@ -137,11 +137,18 @@ for epoch in range(num_epochs):
             backout = resnet50_fpn(img)
             fpn_feat_list = list(backout.values())
             cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
+
             ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                     bbox_list,
                                                                     label_list,
                                                                     mask_list)
+            print(cate_pred_list.device)
+            print(ins_pred_list.device)
+            print(ins_gts_list.device)
+            print(ins_ind_gts_list.device)
+            print(cate_gts_list.device)
             cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)
+            
             test_running_cate_loss += cate_loss.item()
             test_running_mask_loss += mask_loss.item()
             test_running_total_loss += total_loss.item()
