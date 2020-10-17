@@ -80,7 +80,7 @@ test_total_losses=[]
 os.makedirs("train_check_point", exist_ok=True)
 
 # tensorboard
-os.makedirs("logs")
+os.makedirs("logs", exist_ok=True)
 writer = SummaryWriter(log_dir="logs")
 
 for epoch in range(num_epochs):
