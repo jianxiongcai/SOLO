@@ -5,3 +5,8 @@ testfig/
 jupyters/
 **/plotgt_result/
 **/__pycache__/
+
+data/
+CIS_680_hw3_part_a_report.pdf
+CIS680_Project3_SOLO_part_a.pdf
+CIS680_Project3_SOLO_part_b.pdf
