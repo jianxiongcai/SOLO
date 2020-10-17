@@ -63,6 +63,7 @@ solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the b
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 resnet50_fpn = resnet50_fpn.to(device)
+resnet50_fpn.eval()
 solo_head = solo_head.to(device)
 
 num_epochs = 36
