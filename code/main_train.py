@@ -38,6 +38,7 @@ bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 paths = [imgs_path, masks_path, labels_path, bboxes_path]
 # load the data into data.Dataset
 dataset = BuildDataset(paths)
+del paths
 
 full_size = len(dataset)
 train_size = int(full_size * 0.8)
@@ -50,7 +51,7 @@ np.random.seed(0)
 
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
-batch_size = 1
+batch_size = 2
 train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 train_loader = train_build_loader.loader()
 test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -94,14 +95,18 @@ for epoch in range(num_epochs):
         
         with torch.no_grad():
             backout = resnet50_fpn(img)
+        del img
         fpn_feat_list = list(backout.values())
         optimizer.zero_grad()
         cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
+        del fpn_feat_list
         ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                         bbox_list,
                                                                         label_list,
                                                                         mask_list)  
         cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)  #batch loss
+        del label_list, mask_list, bbox_list
+        del ins_gts_list, ins_ind_gts_list, cate_gts_list, cate_pred_list, ins_pred_list      
         total_loss.backward()
         optimizer.step()
         running_cate_loss += cate_loss.item()
@@ -141,16 +146,18 @@ for epoch in range(num_epochs):
             bbox_list = [x.to(device) for x in bbox_list]
 
             backout = resnet50_fpn(img)
+            del img
             fpn_feat_list = list(backout.values())
             cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
-
+            del fpn_feat_list
             ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                     bbox_list,
                                                                     label_list,
                                                                     mask_list)
 
             cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)
-            
+            label_list, mask_list, bbox_list
+            del ins_gts_list, ins_ind_gts_list, cate_gts_list, cate_pred_list, ins_pred_list
             test_running_cate_loss += cate_loss.item()
             test_running_mask_loss += mask_loss.item()
             test_running_total_loss += total_loss.item()
