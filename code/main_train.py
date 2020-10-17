@@ -91,6 +91,9 @@ for epoch in range(num_epochs):
         fpn_feat_list = list(backout.values())
         optimizer.zero_grad()
         cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
+        print(bbox_list[0].device)
+        print(label_list[0].device)
+        print(mask_list[0].device)
         ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                         bbox_list,
                                                                         label_list,
