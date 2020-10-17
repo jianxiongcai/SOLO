@@ -419,20 +419,20 @@ class SOLOHead(nn.Module):
     
         idx_row=list(np.arange(0,N))
         idx_col=list(cate_gts.long().numpy())
-        one_hot_raw=torch.zeros((N,C)).long()
-        one_hot_raw[idx_row,idx_col]=torch.Tensor([1]).long()
+        one_hot_raw=torch.zeros((N,C), device=cate_preds.device, dtype=torch.long)
+        one_hot_raw[idx_row,idx_col] = 1
         one_hot=one_hot_raw[:,1:]
         one_hot=one_hot.flatten()               #N*(c-1)
     
         m=one_hot.shape[0]
-        inv_one_hot=1-one_hot
+        inv_one_hot = 1-one_hot
         p2=cate_preds*inv_one_hot
         p1=1-p2
         p3=p1+cate_preds-one_hot
         p4=1-p3
-        y = -torch.sum((1-alpha)  * torch.pow(p2, gamma) * torch.log(p1))
-        y_1 = -torch.sum( alpha * torch.pow(p4, gamma)* torch.log(p3))
-        focal_loss=(y_1 + y)/(m + 1e-9)
+        y = -torch.sum((1-alpha) * torch.pow(p2, gamma) * torch.log(p1))
+        y_1 = -torch.sum(alpha * torch.pow(p4, gamma) * torch.log(p3))
+        focal_loss = (y_1 + y)/(m + 1e-9)
         
         
         return focal_loss
@@ -492,6 +492,7 @@ class SOLOHead(nn.Module):
                           featmap_sizes=None):
         ## TODO: finish single image target build
         # compute the area of every object in this single image
+        device = gt_bboxes_raw.device
 
         # initial the output list, each entry for one featmap
         ins_label_list = []
@@ -536,9 +537,9 @@ class SOLOHead(nn.Module):
             S = self.seg_num_grids[level_idx]
             assert len(feat_size) == 2
             # cate label map / ins_label_list
-            cate_label_map = torch.zeros((S, S), dtype=torch.long)          #40,40
-            ins_label_map = torch.zeros((S * S, feat_size[0], feat_size[1]), dtype=torch.long)  #1600,200,272
-            ins_ind_label = torch.zeros((S * S), dtype=torch.bool)      # 1600
+            cate_label_map = torch.zeros((S, S), dtype=torch.long, device=device)          #40,40
+            ins_label_map = torch.zeros((S * S, feat_size[0], feat_size[1]), dtype=torch.long, device=device)  #1600,200,272
+            ins_ind_label = torch.zeros((S * S), dtype=torch.bool, device=device)      # 1600
             # obj_idx w.r.t. gt_labels_raw / gt_bbox_raw
             for obj_idx in obj_indice[level_idx]:       # perfix i denotes grid cell index here
                 # the 2D grid index where the center region boundary fall in
