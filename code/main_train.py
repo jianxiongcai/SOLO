@@ -97,9 +97,9 @@ for epoch in range(num_epochs):
                                                                         mask_list)  
         print(cate_pred_list[0].device)
         print(ins_pred_list[0].device)
-        print(ins_gts_list[0].device)
-        print(ins_ind_gts_list[0].device)
-        print(cate_gts_list[0].device)
+        print(ins_gts_list[0][0].device)
+        print(ins_ind_gts_list[0][0].device)
+        print(cate_gts_list[0][0].device)
         cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)  #batch loss
         total_loss.backward()
         optimizer.step()
