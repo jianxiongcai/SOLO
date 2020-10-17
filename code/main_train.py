@@ -59,10 +59,10 @@ test_loader = test_build_loader.loader()
 resnet50_fpn = Resnet50Backbone()
 solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the background as one category.
 # loop the image
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-resnet50_fpn = resnet50_fpn.to(device)
-solo_head = solo_head.to(device)
+resnet50_fpn = nn.DataParallel(resnet50_fpn).to(device)
+solo_head = nn.DataParallel(solo_head).to(device)
 
 num_epochs = 36
 optimizer = optim.SGD(solo_head.parameters(), lr=0.01/8, momentum=0.9, weight_decay=0.0001)
