@@ -92,8 +92,8 @@ for epoch in range(num_epochs):
         bbox_list = [x.to(device) for x in bbox_list]
         
         
-        
-        backout = resnet50_fpn(img)
+        with torch.no_grad():
+            backout = resnet50_fpn(img)
         fpn_feat_list = list(backout.values())
         optimizer.zero_grad()
         cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
@@ -139,7 +139,7 @@ for epoch in range(num_epochs):
             label_list = [x.to(device) for x in label_list]
             mask_list = [x.to(device) for x in mask_list]
             bbox_list = [x.to(device) for x in bbox_list]
-                                  
+
             backout = resnet50_fpn(img)
             fpn_feat_list = list(backout.values())
             cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
