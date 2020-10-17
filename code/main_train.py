@@ -8,6 +8,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data
+from tensorboardX import SummaryWriter
 from scipy import ndimage
 from functools import partial
 from matplotlib import pyplot as plt
@@ -78,6 +79,10 @@ test_total_losses=[]
 num_log_iter=100
 os.makedirs("train_check_point", exist_ok=True)
 
+# tensorboard
+os.makedirs("logs")
+writer = SummaryWriter(log_dir="logs")
+
 for epoch in range(num_epochs):
     ## fill in your training code
     solo_head.train()
@@ -96,7 +101,7 @@ for epoch in range(num_epochs):
             backout = resnet50_fpn(img)
         fpn_feat_list = list(backout.values())
         optimizer.zero_grad()
-        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
+        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False)
         ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                         bbox_list,
                                                                         label_list,
@@ -108,9 +113,14 @@ for epoch in range(num_epochs):
         running_mask_loss += mask_loss.item()
         running_total_loss += total_loss.item()
         if iter % 100 == 99:
-            log_cate_loss = running_cate_loss
-            log_mask_loss = running_mask_loss
-            log_total_loss = running_total_loss
+            log_cate_loss = running_cate_loss / 100.0
+            log_mask_loss = running_mask_loss / 100.0
+            log_total_loss = running_total_loss / 100.0
+            # write to summary writer (x: iteration number sequential)
+            writer.add_scalar('Loss/train/log_cate_loss', log_total_loss, len(train_cate_losses))
+            writer.add_scalar('Loss/train/log_mask_loss', log_mask_loss, len(train_mask_losses))
+            writer.add_scalar('Loss/train/log_total_loss', log_total_loss, len(train_total_losses))
+            # save to files
             train_cate_losses.append(log_cate_loss)
             train_mask_losses.append(log_mask_loss)
             train_total_losses.append(log_total_loss)
@@ -159,9 +169,15 @@ for epoch in range(num_epochs):
         epoch_mask_loss = test_running_mask_loss / len(test_loader.dataset)
         epoch_total_loss = test_running_total_loss / len(test_loader.dataset)
         print('\nEpoch:{} Avg. test loss: {:.4f}\n'.format(epoch + 1, epoch_total_loss))
+        # write to summary writer
+        writer.add_scalar('Loss/test/cate_loss', epoch_cate_loss, epoch)
+        writer.add_scalar('Loss/test/mask_loss', epoch_mask_loss, epoch)
+        writer.add_scalar('Loss/test/total_loss', epoch_total_loss, epoch)
+        # save to list
         test_cate_losses.append(epoch_cate_loss)
         test_mask_losses.append(epoch_mask_loss)
         test_total_losses.append(epoch_total_loss)
     
     scheduler.step()
-    
+
+writer.close()
