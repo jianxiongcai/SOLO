@@ -218,6 +218,20 @@ class SOLOHead(nn.Module):
             # cate_pred: (bz,C-1,S,S)
             # ins_pred: (bz, S^2, 2H_feat, 2W_feat)
     def forward_single_level(self, fpn_feat, idx, eval=False, upsample_shape=None):
+        def create_coord_map(H_feat, W_feat, device):
+            x = torch.linspace(-1, 1, H_feat)
+            y = torch.linspace(-1, 1, W_feat)
+            xm, ym = torch.meshgrid([x, y])
+            xm = torch.unsqueeze(xm, 0)  ##xm (1,h,w)
+            ym = torch.unsqueeze(ym, 0)  ##ym (1,h,w)
+            xm = torch.unsqueeze(xm, 0)  ##xm (1,1,h,w)
+            ym = torch.unsqueeze(ym, 0)  ##ym (1,1,h,w)
+            xm = xm.repeat(bz, 1, 1, 1)  ##xm (bz,1,h,w)
+            ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
+            # gpu device
+            xm, ym = xm.to(device), ym.to(device)
+            return xm, ym
+
         # upsample_shape is used in eval mode
         ## TODO: finish forward function for single level in FPN.
         ## Notice, we distinguish the training and inference.
@@ -247,16 +261,7 @@ class SOLOHead(nn.Module):
             cate_pred = self.points_nms(cate_pred)      # cate_pred: (bz,C-1,S,S)
                                                                             
             ##mask
-            x=torch.linspace(-1,1,H_feat)  ##100                     #bz,256+2,S,S
-            y=torch.linspace(-1,1,W_feat)  ##136
-            xm,ym=torch.meshgrid([x, y])
-            xm=torch.unsqueeze(xm, 0) ##xm (1,w,h)
-            ym=torch.unsqueeze(ym, 0) ##ym (1,w,h)
-            xm=torch.unsqueeze(xm, 0)  ##xm (1,1,w,h)
-            ym=torch.unsqueeze(ym, 0)   ##ym (1,1,w,h)    
-            xm = xm.repeat(bz, 1, 1, 1) ##xm (bz,1,w,h)
-            ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,w,h)   (bz,1,100,136) 
-            
+            xm, ym = create_coord_map(H_feat, W_feat, ins_pred.device)
             ins_pred=torch.cat((ins_pred,xm),dim=1)
             ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)  (bz,258,100,136) 
 #            ins_pred = ins_pred.permute(0,1,3,2)   #(bz,256+2,h,w)    (bz,256,136,100)
@@ -279,17 +284,7 @@ class SOLOHead(nn.Module):
             for f in self.cate_out:
                 cate_pred = f(cate_pred)       #bz,256,S,S
             #mask
-            x=torch.linspace(-1,1,H_feat)
-            y=torch.linspace(-1,1,W_feat)
-            xm,ym=torch.meshgrid([x, y])
-            xm=torch.unsqueeze(xm, 0) ##xm (1,h,w)
-            ym=torch.unsqueeze(ym, 0) ##ym (1,h,w)
-            xm=torch.unsqueeze(xm, 0)  ##xm (1,1,h,w)
-            ym=torch.unsqueeze(ym, 0)   ##ym (1,1,h,w)
-            xm = xm.repeat(bz, 1, 1, 1) ##xm (bz,1,h,w)
-            ym = ym.repeat(bz, 1, 1, 1)  ##ym (bz,1,h,w)
-            # gpu device
-            xm, ym = xm.to(ins_pred.device), ym.to(ins_pred.device)
+            xm, ym = create_coord_map(H_feat, W_feat, ins_pred.device)
             ins_pred=torch.cat((ins_pred,xm),dim=1)
             ins_pred=torch.cat((ins_pred,ym),dim=1)  ## (bz,256+2,h,w)  ## (bz,256+2,100,136)
 #            ins_pred = ins_pred.permute(0,1,3,2)   #(bz,256+2,h,w)    (bz,256,136,100)
