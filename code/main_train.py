@@ -97,18 +97,10 @@ for epoch in range(num_epochs):
         fpn_feat_list = list(backout.values())
         optimizer.zero_grad()
         cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
-        print(bbox_list[0].device)
-        print(label_list[0].device)
-        print(mask_list[0].device)
         ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
                                                                         bbox_list,
                                                                         label_list,
                                                                         mask_list)  
-        print(cate_pred_list[0].device)
-        print(ins_pred_list[0].device)
-        print(ins_gts_list[0][0].device)
-        print(ins_ind_gts_list[0][0].device)
-        print(cate_gts_list[0][0].device)
         cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)  #batch loss
         total_loss.backward()
         optimizer.step()
