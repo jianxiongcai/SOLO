@@ -86,7 +86,13 @@ for epoch in range(num_epochs):
     running_total_loss=0.0
     for iter, data in enumerate(train_loader, 0):
         img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
-        img = img.to(device)           
+        img = img.to(device)      
+        label_list = [x.to(device) for x in label_list]
+        mask_list = [x.to(device) for x in mask_list]
+        bbox_list = [x.to(device) for x in bbox_list]
+        
+        
+        
         backout = resnet50_fpn(img)
         fpn_feat_list = list(backout.values())
         optimizer.zero_grad()
