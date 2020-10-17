@@ -357,7 +357,7 @@ class SOLOHead(nn.Module):
         # cate_gts: (bz*fpn*S^2,), img, fpn, grids
         # cate_preds: (bz*fpn*S^2, C-1), ([img, fpn, grids], C-1)
         cate_gts = [torch.cat([cate_gts_level_img.flatten() for cate_gts_level_img in cate_gts_level]) for cate_gts_level in zip(*cate_gts_list)]  #list, len()=5,each(bz*S*S,) for each level int64      
-        layer_cate_gts = cate_gts    #list len(fpn)   #(bz*S^2,) torch.long       
+#        layer_cate_gts = cate_gts    #list len(fpn)   #(bz*S^2,) torch.long       
         cate_gts = torch.cat(cate_gts)  #(7744,) torch {0,1,2,3}   int64
                
         cate_preds = [cate_pred_level.permute(0,2,3,1).reshape(-1, self.cate_out_channels) for cate_pred_level in cate_pred_list]   #list, len()=5,each(bz*S*S,3) for each level       
@@ -369,11 +369,11 @@ class SOLOHead(nn.Module):
         n_total=0
         for layer_idx in range(fpn):
 #            s=self.num_grids[layer_idx]
-            active_k=layer_cate_gts[layer_idx].nonzero().long()
-            N_pos=active_k.shape[0]
+#            active_k=layer_cate_gts[layer_idx].nonzero().long()
+            N_pos=ins_gts[layer_idx].shape[0]
             if N_pos==0:
                 continue          
-            active_k=active_k.numpy().tolist()       
+#            active_k=active_k.numpy().tolist()       
             active_mask_pred=ins_preds[layer_idx]
             active_mask_target=ins_gts[layer_idx]
             d_mask=map(self.DiceLoss,active_mask_pred,active_mask_target)
@@ -425,14 +425,17 @@ class SOLOHead(nn.Module):
         one_hot=one_hot.flatten()               #N*(c-1)
     
         m=one_hot.shape[0]
-        p_1=cate_preds[one_hot.nonzero()]
-        p=cate_preds[one_hot==0]
-    
-        y_1= - torch.sum(alpha * torch.pow(1-p_1,gamma) *torch.log(p_1))
-        y = - torch.sum((1 - alpha) * torch.pow(p, gamma) * torch.log(1-p))
-        focal_loss = y_1 + y
+        inv_one_hot=1-one_hot
+        p2=cate_preds*inv_one_hot
+        p1=1-p2
+        p3=p1+cate_preds-one_hot
+        p4=1-p3
+        y = -torch.sum((1-alpha)  * torch.pow(p2, gamma) * torch.log(p1))
+        y_1 = -torch.sum( alpha * torch.pow(p4, gamma)* torch.log(p3))
+        focal_loss=(y_1 + y)/(m + 1e-9)
         
-        return focal_loss/(m+1e-9)
+        
+        return focal_loss
         
 
     def MultiApply(self, func, *args, **kwargs):
@@ -870,15 +873,15 @@ from backbone import *
 if __name__ == '__main__':
     # solo_head = SOLOHead(num_classes=4)
     # file path and make a list
-    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
-    bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
+#    imgs_path = '/workspace/data/hw3_mycocodata_img_comp_zlib.h5'
+#    masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
+#    labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
+#    bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-#    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
-#    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
-#    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
-#    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
+    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
+    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
 
     # set up output dir (for plotGT)
     try:
@@ -951,3 +954,8 @@ if __name__ == '__main__':
 #            break
         cate_loss, mask_loss, total_loss=solo_head.loss(cate_pred_list,ins_pred_list,ins_gts_list,ins_ind_gts_list,cate_gts_list)
 
+
+            
+        
+
+        
