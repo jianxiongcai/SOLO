@@ -52,7 +52,7 @@ np.random.seed(0)
 
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
-batch_size = 2
+batch_size = 3
 train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 train_loader = train_build_loader.loader()
 test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -67,7 +67,7 @@ resnet50_fpn = resnet50_fpn.to(device)
 solo_head = solo_head.to(device)
 
 num_epochs = 36
-optimizer = optim.SGD(solo_head.parameters(), lr=0.01/8, momentum=0.9, weight_decay=0.0001)
+optimizer = optim.SGD(solo_head.parameters(), lr=0.01/16*batch_size, momentum=0.9, weight_decay=0.0001)
 scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[27,33], gamma=0.1)
 train_cate_losses=[]
 train_mask_losses=[]
@@ -77,7 +77,6 @@ test_cate_losses=[]
 test_mask_losses=[]
 test_total_losses=[]
 
-num_log_iter=100
 os.makedirs("train_check_point", exist_ok=True)
 
 # tensorboard
