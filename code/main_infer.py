@@ -1,23 +1,10 @@
 import numpy as np
-import torch
-from sklearn.model_selection import train_test_split
 from solo_head import *
 from backbone import *
 from dataset import *
-import torch.optim as optim
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.data
-from tensorboardX import SummaryWriter
-from scipy import ndimage
-from functools import partial
-from matplotlib import pyplot as plt
-from matplotlib import cm
-import skimage.transform
-import os.path
-import shutil
 import gc
-from sklearn import metrics
+import os
 gc.enable()
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -45,7 +32,7 @@ np.random.seed(0)
 
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
-eval_epoch = 1
+eval_epoch = 30
 print("[INFO] eval epoch: {}".format(eval_epoch))
 batch_size = 2
 # train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
@@ -65,6 +52,9 @@ device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()             # set to eval mode
 solo_head = solo_head.to(device)
+
+mask_color_list = ["jet", "ocean", "Spectral"]
+os.makedirs("infer_result", exist_ok=True)
 
 # num_epochs = 36
 # optimizer = optim.SGD(solo_head.parameters(), lr=0.01/16*batch_size, momentum=0.9, weight_decay=0.0001)
@@ -106,5 +96,7 @@ with torch.no_grad():
         # post-processing
         NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list = solo_head.PostProcess(ins_pred_list, cate_pred_list, (img.shape[2], img.shape[3]))
 
-        # plotgt
-        break
+        solo_head.PlotInfer(NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list, mask_color_list, img, iter)
+
+        if (iter == 10):
+            break
