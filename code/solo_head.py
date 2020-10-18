@@ -888,7 +888,8 @@ class SOLOHead(nn.Module):
                 obj_mask = ins[ins_id].cpu().numpy()        # (H, W)
 
                 # assign color
-                rgb_color = rgb_color_list[obj_label - 1]  # (3,)
+                # Note: the object label from prediction here does not include background.
+                rgb_color = rgb_color_list[obj_label]  # (3,)
                 # add mask to visualization image
                 obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (H, W, 3)
                 mask_vis = mask_vis + obj_mask_3 * rgb_color
