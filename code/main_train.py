@@ -121,7 +121,7 @@ for epoch in range(num_epochs):
             log_mask_loss = running_mask_loss / 100.0
             log_total_loss = running_total_loss / 100.0
             # write to summary writer (x: iteration number sequential)
-            writer.add_scalar('Loss/train/log_cate_loss', log_total_loss, len(train_cate_losses))
+            writer.add_scalar('Loss/train/log_cate_loss', log_cate_loss, len(train_cate_losses))
             writer.add_scalar('Loss/train/log_mask_loss', log_mask_loss, len(train_mask_losses))
             writer.add_scalar('Loss/train/log_total_loss', log_total_loss, len(train_total_losses))
             # save to files
