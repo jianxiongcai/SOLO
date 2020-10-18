@@ -607,12 +607,16 @@ class SOLOHead(nn.Module):
 
             tmp_list = []
             for fpn_i in range(N_fpn):
-                cate_pred = cate_pred_list[fpn_i][img_i]        # (S,S,C-1)
-                S_1, S_2, C = cate_pred.shape
-                tmp_x = cate_pred.permute(C, S_1, S_2).view(C, S_1 * S_2)       # (C, S_1 * S_2)
+                cate_pred = cate_pred_list[fpn_i][img_i]        # (C-1, S, S)
+                C, S_1, S_2 = cate_pred.shape
+                # tmp_x = cate_pred.permute(C, S_1, S_2).view(C, S_1 * S_2)       # (C, S_1 * S_2)
+                # tmp_list.append(tmp_x.permute(1, 0))
+                assert cate_pred.shape[1] == cate_pred.shape[2]
+                tmp_x = cate_pred.view(C, S_1 * S_2)       # (C, S_1 * S_2)
                 tmp_list.append(tmp_x.permute(1, 0))
             # (all_level_S^2, C-1)
             cate_pred_img = torch.cat(tmp_list, dim=0)
+            assert cate_pred_img.shape[1] == 3
 
             # post-processing
             NMS_sorted_scores, NMS_sorted_cate_label, NMS_sorted_ins = self.PostProcessImg(ins_pred_img, cate_pred_img, ori_size)
@@ -665,7 +669,7 @@ class SOLOHead(nn.Module):
 
         # score-sorting
         _, sorted_indice = torch.sort(scores, descending=True)
-        sorted_indice = sorted_indice[self.postprocess_cfg['pre_NMS_num']]
+        sorted_indice = sorted_indice[0:self.postprocess_cfg['pre_NMS_num']]
         assert len(sorted_indice) == self.postprocess_cfg['pre_NMS_num']
         sorted_score = scores[sorted_indice]        # Note: should be of descending order
         sorted_label = labels_raw[sorted_indice]
@@ -677,7 +681,9 @@ class SOLOHead(nn.Module):
         scores_nms = self.MatrixNMS(sorted_ins_bin, sorted_score)
 
         # keep the biggest N instances
-        _, max_indice = torch.max(scores_nms)
+        # print("scores_nms.shape: {}".format(scores_nms.shape))
+        # print("scores_nms.ndim: {}".format(scores_nms.ndim))
+        _, max_indice = torch.sort(scores_nms, descending=True)
         max_indice = max_indice[0:self.postprocess_cfg['keep_instance']]
         NMS_sorted_scores = scores_nms[max_indice]
         NMS_sorted_cate_label = sorted_label[max_indice]
@@ -697,6 +703,9 @@ class SOLOHead(nn.Module):
         :return:
             H * W metric (A). A[i, j] = IoU(sorted_ins_1[i], sorted_ins_2[j])
         """
+        assert sorted_ins_1.dtype == torch.bool
+        sorted_ins_1 = sorted_ins_1 * 1.0
+        sorted_ins_2 = sorted_ins_2 * 1.0
         N, H, W = sorted_ins_1.shape
         M = sorted_ins_2.shape[0]
         assert sorted_ins_2.shape[1] == H
@@ -747,7 +756,7 @@ class SOLOHead(nn.Module):
 
         # compute the decay
         # (n_act,)
-        decay = torch.min(act_func(ious, method, gauss_sigma) / act_func(ious_i_max, method, gauss_sigma), dim=0)
+        decay, _ = torch.min(act_func(ious, method, gauss_sigma) / act_func(ious_i_max, method, gauss_sigma), dim=0)
 
         # update score
         decay_scores = sorted_scores * decay
@@ -864,6 +873,14 @@ class SOLOHead(nn.Module):
             score, cate_label, ins, img_single = data
             img_vis = img_single.cpu().numpy().transpose((1, 2, 0))     # (H, W, 3)
 
+            # save the original image
+            fig, ax = plt.subplots(1)
+            ax.imshow(img_vis)
+            plt.show()
+            os.makedirs("infer_result", exist_ok=True)
+            saving_file = "infer_result/batch_{}_img_{}_ori.png".format(iter_ind, img_i)
+            plt.savefig(saving_file)
+
             # overlap all instance's mask to mask_vis (with color)
             mask_vis = np.zeros_like(img_vis)               # (H, W, 3)
             for ins_id in range(len(score)):
@@ -886,11 +903,8 @@ class SOLOHead(nn.Module):
             plt.show()
 
             # save the file
-            saving_id = 1
+            os.makedirs("infer_result", exist_ok=True)
             saving_file = "infer_result/batch_{}_img_{}.png".format(iter_ind, img_i)
-            while os.path.isfile(saving_file):
-                saving_id = saving_id + 1
-                saving_file = "infer_result/batch_{}_img_{}.png".format(iter_ind, img_i)
             plt.savefig(saving_file)
 
 
