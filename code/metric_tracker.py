@@ -5,6 +5,7 @@ A portable metric tracker for map computation
 """
 
 import numpy as np
+import torch
 from sklearn.metrics import auc
 
 class MetricTracker:
@@ -33,6 +34,13 @@ class MetricTracker:
         :param num_gt_batch: number of graound-truths in the batch
         :return:
         """
+        if isinstance(conf_scores, torch.Tensor):
+            conf_scores = conf_scores.detach().cpu().numpy()
+        if isinstance(tp_indicator, torch.Tensor):
+            tp_indicator = tp_indicator.detach().cpu().numpy()
+        if isinstance(match_indice, torch.Tensor):
+            match_indice = match_indice.detach().cpu().numpy()
+
         assert isinstance(conf_scores, np.ndarray)
         assert isinstance(tp_indicator, np.ndarray)
         assert isinstance(match_indice, np.ndarray)
