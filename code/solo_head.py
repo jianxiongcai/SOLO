@@ -885,7 +885,7 @@ class SOLOHead(nn.Module):
             mask_vis = np.zeros_like(img_vis)               # (H, W, 3)
             for ins_id in range(len(score)):
                 obj_label = cate_label[ins_id]
-                ins_bin = (ins >= self.postprocess_cfg['ins_thresh']) * 1.0
+                ins_bin = (ins[ins_id] >= self.postprocess_cfg['ins_thresh']) * 1.0
                 obj_mask = ins_bin.cpu().numpy()        # (H, W)
 
                 # assign color
