@@ -44,7 +44,7 @@ del paths
 full_size = len(dataset)
 train_size = int(full_size * 0.8)
 test_size = full_size - train_size
-
+#reproductivity
 torch.random.manual_seed(1)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
