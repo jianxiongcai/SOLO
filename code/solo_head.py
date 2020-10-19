@@ -686,7 +686,8 @@ class SOLOHead(nn.Module):
         _, max_indice = torch.sort(scores_nms, descending=True)
         max_indice = max_indice[0:self.postprocess_cfg['keep_instance']]
         NMS_sorted_scores = scores_nms[max_indice]
-        NMS_sorted_cate_label = sorted_label[max_indice]
+        # add back the background label
+        NMS_sorted_cate_label = sorted_label[max_indice] + 1
         # resize to H_ori, W_ori
         # (C, H, W)
         resized_mask = torch.nn.functional.interpolate(sorted_ins[max_indice].unsqueeze(0), scale_factor=(4, 4))
@@ -889,8 +890,8 @@ class SOLOHead(nn.Module):
                 obj_mask = ins_bin.cpu().numpy()        # (H, W)
 
                 # assign color
-                # Note: the object label from prediction here does not include background.
-                rgb_color = rgb_color_list[obj_label]  # (3,)
+                # Note: the object label from prediction here includes background.
+                rgb_color = rgb_color_list[obj_label - 1]  # (3,)
                 # add mask to visualization image
                 obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (H, W, 3)
                 mask_vis = mask_vis + obj_mask_3 * rgb_color

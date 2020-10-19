@@ -6,6 +6,8 @@ from metric_tracker import MetricTracker
 import torch.utils.data
 import gc
 import os
+from tqdm import tqdm
+from matplotlib import pyplot as plt
 gc.enable()
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -19,6 +21,8 @@ bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 eval_epoch = 30
 VISUALIZATION = False
 batch_size = 2
+ins_threshold = 0.5
+iou_threshold = 0.5
 
 # set up output dir (for plotGT)
 paths = [imgs_path, masks_path, labels_path, bboxes_path]
@@ -55,6 +59,7 @@ solo_head.load_state_dict(checkpoint['model_state_dict'])
 
 
 solo_head = solo_head.to(device)
+solo_head.eval()
 
 mask_color_list = ["jet", "ocean", "Spectral"]
 os.makedirs("infer_result", exist_ok=True)
@@ -76,12 +81,12 @@ os.makedirs("infer_result", exist_ok=True)
 # os.makedirs("logs", exist_ok=True)
 # writer = SummaryWriter(log_dir="logs")
 
-solo_head.eval()
-
-metric_tracker = MetricTracker()
+metric_trackers = []
+for i in range(solo_head.num_classes - 1):
+    metric_trackers.append(MetricTracker(i))
 
 with torch.no_grad():
-    for iter, data in enumerate(test_loader, 0):
+    for iter, data in enumerate(tqdm(test_loader), 0):
         img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
         img = img.to(device)
         label_list = [x.to(device) for x in label_list]
@@ -100,17 +105,23 @@ with torch.no_grad():
 
         # post-processing
         NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list = solo_head.PostProcess(ins_pred_list, cate_pred_list, (img.shape[2], img.shape[3]))
+        del ins_pred_list
+        del cate_pred_list
         if (VISUALIZATION):
             solo_head.PlotInfer(NMS_sorted_scores_list, NMS_sorted_cate_label_list, NMS_sorted_ins_list,
                                 mask_color_list, img, iter)
 
-        # metric  computation for each image in the batch
+        # for each image in the batch, do metric eval
         for sorted_scores, sorted_cate_label, sorted_ins, label_gt, mask_gt in zip(NMS_sorted_scores_list,
                                                                                    NMS_sorted_cate_label_list,
                                                                                    NMS_sorted_ins_list, label_list,
                                                                                    mask_list):
+            assert torch.all(sorted_cate_label != 0)           # no background prediction class
             # compute the IoU between img and mask for each images
-            for label_x in range(3):
+            for label_x in range(solo_head.num_classes):
+                if (label_x == 0):
+                    # skip background
+                    continue
                 indice_gt = (label_gt == label_x)
                 indice_pred = (sorted_cate_label == label_x)
 
@@ -125,25 +136,45 @@ with torch.no_grad():
                     tp_indicator = np.zeros((N_pred, ), dtype=np.bool)
                     match_indice = np.zeros((N_pred, ), dtype=np.int)
                 else:
-                    conf_scores = sorted_scores[indice_pred]
-                    cate_label = sorted_cate_label[indice_pred]
-                    ins_pred = sorted_ins[indice_pred]
-                    assert len(ins) == N_pred
+                    if N_pred != 0:
+                        conf_scores = sorted_scores[indice_pred]
+                        cate_label = sorted_cate_label[indice_pred]
+                        ins_pred = sorted_ins[indice_pred]
+                        assert len(ins_pred) == N_pred
 
-                    ins_gt = mask_gt[indice_gt]
+                        ins_gt = mask_gt[indice_gt]
 
-                    # compute the IoU
-                    ious = solo_head.MatrixIOU(ins_pred, ins_gt)
-                    assert ious.shape == (N_pred, N_gt)
-                    # for each max prediction box, compute max_iou overlap with gt
-                    max_ious, iou_max_idx = torch.max(ious, dim=1)
-                    assert max_ious.shape[0] == N_pred
-                    assert iou_max_idx.shape[0] == N_pred
+                        # compute the IoU
+                        ious = solo_head.MatrixIOU(ins_pred > ins_threshold, ins_gt > ins_threshold)
+                        assert ious.shape == (N_pred, N_gt)
+                        # for each max prediction box, compute max_iou overlap with gt
+                        max_ious, iou_max_idx = torch.max(ious, dim=1)
+                        assert max_ious.shape[0] == N_pred
+                        assert iou_max_idx.shape[0] == N_pred
 
-                    tp_indicator = (max_ious > 0.5)
-                    match_indice = iou_max_idx
+                        tp_indicator = (max_ious > iou_threshold)
+                        match_indice = iou_max_idx
+                    else:
+                        conf_scores = torch.zeros((0,))
+                        tp_indicator = torch.zeros((0,), dtype=torch.bool)
+                        match_indice = torch.zeros((0,), dtype=torch.int)
 
                 # MAP computation
-                metric_tracker.add_match(conf_scores, tp_indicator, match_indice, N_gt)
+                metric_trackers[label_x - 1].add_match(conf_scores, tp_indicator, match_indice, N_gt)
 
+    # all images have done metric eval in the batch
+    fig, ax = plt.subplots(1)
+    for i in range(solo_head.num_classes - 1):
+        metric_trackers[i].compute_precision_recall()
+        recall, precision = metric_trackers[i].sorted_pr_curve()
 
+        # plot the precision-recall curve
+        plt.plot(recall, precision)
+
+        ap = metric_trackers[i].compute_ap()
+        print("class_id: {}. ap: {}".format(i, ap))
+        metric_trackers[i].reset()
+
+    plt.show()
+    saving_file = "pr_curve.png"
+    plt.savefig(saving_file)
