@@ -885,7 +885,8 @@ class SOLOHead(nn.Module):
             mask_vis = np.zeros_like(img_vis)               # (H, W, 3)
             for ins_id in range(len(score)):
                 obj_label = cate_label[ins_id]
-                obj_mask = ins[ins_id].cpu().numpy()        # (H, W)
+                ins_bin = (ins >= self.postprocess_cfg['ins_thresh']) * 1.0
+                obj_mask = ins_bin.cpu().numpy()        # (H, W)
 
                 # assign color
                 # Note: the object label from prediction here does not include background.
@@ -894,7 +895,6 @@ class SOLOHead(nn.Module):
                 obj_mask_3 = np.stack([obj_mask, obj_mask, obj_mask], axis=2)  # (H, W, 3)
                 mask_vis = mask_vis + obj_mask_3 * rgb_color
 
-            ins_bin = ins >= self.postprocess_cfg['ins_thresh']
             # use mask value if available, otherwise, use img value
             img_vis = mask_vis + img_vis * (mask_vis == 0)
 
