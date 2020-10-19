@@ -694,7 +694,11 @@ class SOLOHead(nn.Module):
         resized_mask = resized_mask.squeeze(0)
         NMS_sorted_ins = resized_mask
 
-        return NMS_sorted_scores, NMS_sorted_cate_label, NMS_sorted_ins
+        # remove low prob prediction
+        # todo (jianxiong): change this threshold
+        high_prob_indice = NMS_sorted_scores > 0.0
+
+        return NMS_sorted_scores[high_prob_indice], NMS_sorted_cate_label[high_prob_indice], NMS_sorted_ins[high_prob_indice]
 
     def MatrixIOU(self, sorted_ins_1, sorted_ins_2):
         """

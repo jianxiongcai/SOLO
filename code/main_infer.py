@@ -18,11 +18,10 @@ masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
 labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
 bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-eval_epoch = 30
+eval_epoch = 35
 VISUALIZATION = False
 batch_size = 2
-ins_threshold = 0.5
-iou_threshold = 0.5
+cate_thresh = 0.2
 
 # set up output dir (for plotGT)
 paths = [imgs_path, masks_path, labels_path, bboxes_path]
@@ -47,6 +46,9 @@ test_loader = test_build_loader.loader()
 
 resnet50_fpn = Resnet50Backbone()
 solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the background as one category.
+# set cate_thresh to user-defined threshold
+solo_head.postprocess_cfg['cate_thresh'] = cate_thresh
+print("[INFO] Using user-defined cate_thresh: {}".format(cate_thresh))
 
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 resnet50_fpn = resnet50_fpn.to(device)
@@ -145,14 +147,15 @@ with torch.no_grad():
                         ins_gt = mask_gt[indice_gt]
 
                         # compute the IoU
-                        ious = solo_head.MatrixIOU(ins_pred > ins_threshold, ins_gt > ins_threshold)
+                        ious = solo_head.MatrixIOU(ins_pred > solo_head.postprocess_cfg['ins_thresh'],
+                                                   ins_gt > solo_head.postprocess_cfg['ins_thresh'])
                         assert ious.shape == (N_pred, N_gt)
                         # for each max prediction box, compute max_iou overlap with gt
                         max_ious, iou_max_idx = torch.max(ious, dim=1)
                         assert max_ious.shape[0] == N_pred
                         assert iou_max_idx.shape[0] == N_pred
 
-                        tp_indicator = (max_ious > iou_threshold)
+                        tp_indicator = (max_ious > solo_head.postprocess_cfg['IoU_thresh'])
                         match_indice = iou_max_idx
                     else:
                         conf_scores = torch.zeros((0,))
