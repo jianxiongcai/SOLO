@@ -50,13 +50,14 @@ solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the b
 solo_head.postprocess_cfg['cate_thresh'] = cate_thresh
 print("[INFO] Using user-defined cate_thresh: {}".format(cate_thresh))
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")    #gaidong 1
 resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()             # set to eval mode
 
 # load checkpoint
 print("[INFO] eval epoch: {}".format(eval_epoch))
-checkpoint = torch.load("./train_check_point/solo_epoch_{}".format(eval_epoch))
+#checkpoint = torch.load("./train_check_point/solo_epoch_{}".format(eval_epoch))   #gaidong 2
+checkpoint = torch.load("./solo_epoch_{}".format(eval_epoch))
 solo_head.load_state_dict(checkpoint['model_state_dict'])
 
 
