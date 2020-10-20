@@ -50,7 +50,7 @@ solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the b
 solo_head.postprocess_cfg['cate_thresh'] = cate_thresh
 print("[INFO] Using user-defined cate_thresh: {}".format(cate_thresh))
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()             # set to eval mode
 
