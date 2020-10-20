@@ -71,12 +71,17 @@ class BuildDataset(torch.utils.data.Dataset):
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
         if (self.augmentation) and (index >= index_raw % self.images_h5['data'].shape[0]):
             # perform horizontally flipping (data augmentation)
-            transed_img = torchvision.transforms.functional.hflip(transed_img)
-            transed_mask = torchvision.transforms.functional.hflip(transed_mask)
+            transed_img = torch.flip(transed_img, dims=[2])
+            transed_mask = torch.flip(transed_mask, dims=[2])
             # bbox transform
-            transed_bbox[0] = 1 - transed_bbox[0]
-            transed_bbox[2] = 1 - transed_bbox[2]
-            transed_bbox[0], transed_bbox[2] = transed_bbox[2], transed_bbox[1]
+            transed_bbox[:, 0] = 1 - transed_bbox[:, 0]
+            transed_bbox[:, 2] = 1 - transed_bbox[:, 2]
+            # tmp = transed_bbox[:, 0].clone()
+            # transed_bbox[:, 0] = transed_bbox[:, 2]
+            # transed_bbox[:, 2] = tmp
+            transed_bbox[:, 0], transed_bbox[:, 2] = transed_bbox[:, 2].clone(), transed_bbox[:, 0].clone()
+
+            assert torch.all(transed_bbox[:, 0] < transed_bbox[:, 2])
 
         # check flag
         assert transed_img.shape == (3, 800, 1088)
