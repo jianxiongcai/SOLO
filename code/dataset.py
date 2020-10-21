@@ -14,11 +14,13 @@ import matplotlib.patches as patches
 import os.path
 
 class BuildDataset(torch.utils.data.Dataset):
-    def __init__(self, path):
+    def __init__(self, path, augmentation=True):
         """
 
         :param path: the path to the dataset root: /workspace/data or XXX/data/SOLO
+        :param argumentation: if True, perform horizontal flipping argumentation
         """
+        self.augmentation = augmentation
         # all files
         imgs_path, masks_path, labels_path, bboxes_path = path
 
@@ -41,7 +43,9 @@ class BuildDataset(torch.utils.data.Dataset):
         # label
         # transed_mask
         # transed_bbox
-    def __getitem__(self, index):
+    def __getitem__(self, index_raw):
+        # index_raw in (0, )
+        index = index_raw % self.images_h5['data'].shape[0]
         # images
         img_np = self.images_h5['data'][index] / 255.0                     # (3, 300, 400)
         img = torch.tensor(img_np, dtype=torch.float)
@@ -65,6 +69,19 @@ class BuildDataset(torch.utils.data.Dataset):
         bbox_np = self.bboxes_all[index]
         bbox = torch.tensor(bbox_np, dtype=torch.float)
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
+        if (self.augmentation) and (index >= index_raw % self.images_h5['data'].shape[0]):
+            # perform horizontally flipping (data augmentation)
+            transed_img = torch.flip(transed_img, dims=[2])
+            transed_mask = torch.flip(transed_mask, dims=[2])
+            # bbox transform
+            transed_bbox[:, 0] = 1 - transed_bbox[:, 0]
+            transed_bbox[:, 2] = 1 - transed_bbox[:, 2]
+            # tmp = transed_bbox[:, 0].clone()
+            # transed_bbox[:, 0] = transed_bbox[:, 2]
+            # transed_bbox[:, 2] = tmp
+            transed_bbox[:, 0], transed_bbox[:, 2] = transed_bbox[:, 2].clone(), transed_bbox[:, 0].clone()
+
+            assert torch.all(transed_bbox[:, 0] < transed_bbox[:, 2])
 
         # check flag
         assert transed_img.shape == (3, 800, 1088)
@@ -73,7 +90,10 @@ class BuildDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         # return len(self.imgs_data)
-        return self.images_h5['data'].shape[0]
+        if self.augmentation:
+            return self.images_h5['data'].shape[0] * 2
+        else:
+            return self.images_h5['data'].shape[0]
 
     # This function take care of the pre-process of img,mask,bbox
     # in the input mini-batch
@@ -96,6 +116,7 @@ class BuildDataset(torch.utils.data.Dataset):
         mask = F.pad(mask, [11, 11])                    # (N_obj, 800, 1088)
 
         # normalize bounding box
+        # (x1, y1, x2, y2)
         bbox_normed = torch.zeros_like(bbox)
         for i in range(bbox.shape[0]):
             bbox_normed[i, 0] = bbox[i, 0] / 400.0
