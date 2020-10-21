@@ -87,10 +87,7 @@ class BuildDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         # return len(self.imgs_data)
-        if self.augmentation:
-            return self.images_h5['data'].shape[0] * 2
-        else:
-            return self.images_h5['data'].shape[0]
+        return self.images_h5['data'].shape[0]
 
     # This function take care of the pre-process of img,mask,bbox
     # in the input mini-batch

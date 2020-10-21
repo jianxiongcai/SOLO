@@ -19,7 +19,7 @@ masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
 labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
 bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-eval_epoch = 35
+eval_epoch = 50
 VISUALIZATION = False
 batch_size = 2
 cate_thresh = 0.33
@@ -27,7 +27,7 @@ cate_thresh = 0.33
 # set up output dir (for plotGT)
 paths = [imgs_path, masks_path, labels_path, bboxes_path]
 # load the data into data.Dataset
-dataset = BuildDataset(paths)
+dataset = BuildDataset(paths, augmentation=False)
 
 full_size = len(dataset)
 train_size = int(full_size * 0.8)
