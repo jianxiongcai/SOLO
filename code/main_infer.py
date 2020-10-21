@@ -52,7 +52,7 @@ solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the b
 solo_head.postprocess_cfg['cate_thresh'] = cate_thresh
 print("[INFO] Using user-defined cate_thresh: {}".format(cate_thresh))
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")    #gaidong 1
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")   
 resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()             # set to eval mode
 
@@ -183,6 +183,10 @@ with torch.no_grad():
         print("class_id: {}. ap: {}".format(i, ap))
         metric_trackers[i].reset()
 
+    plt.legend(["Vehicles", "People", "Animals"])
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Recall-Precision Curve with cate_threshold = {}".format(cate_thresh))
     plt.show()
     saving_file = "pr_curve.png"
     plt.savefig(saving_file)
