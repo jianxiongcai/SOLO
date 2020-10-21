@@ -21,7 +21,7 @@ bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 eval_epoch = 35
 VISUALIZATION = False
 batch_size = 2
-cate_thresh = 0.2
+cate_thresh = 0.33
 
 # set up output dir (for plotGT)
 paths = [imgs_path, masks_path, labels_path, bboxes_path]
@@ -50,14 +50,14 @@ solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the b
 solo_head.postprocess_cfg['cate_thresh'] = cate_thresh
 print("[INFO] Using user-defined cate_thresh: {}".format(cate_thresh))
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")    #gaidong 1
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")   
 resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()             # set to eval mode
 
 # load checkpoint
 print("[INFO] eval epoch: {}".format(eval_epoch))
-#checkpoint = torch.load("./train_check_point/solo_epoch_{}".format(eval_epoch))   #gaidong 2
-checkpoint = torch.load("./solo_epoch_{}".format(eval_epoch))
+checkpoint = torch.load("./train_check_point/solo_epoch_{}".format(eval_epoch))   
+#checkpoint = torch.load("./solo_epoch_{}".format(eval_epoch))
 solo_head.load_state_dict(checkpoint['model_state_dict'])
 
 
@@ -179,6 +179,10 @@ with torch.no_grad():
         print("class_id: {}. ap: {}".format(i, ap))
         metric_trackers[i].reset()
 
+    plt.legend(["Vehicles", "People", "Animals"])
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Recall-Precision Curve with cate_threshold = {}".format(cate_thresh))
     plt.show()
     saving_file = "pr_curve.png"
     plt.savefig(saving_file)
