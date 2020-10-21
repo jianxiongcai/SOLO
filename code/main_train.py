@@ -67,7 +67,7 @@ resnet50_fpn = resnet50_fpn.to(device)
 resnet50_fpn.eval()
 solo_head = solo_head.to(device)
 
-num_epochs = 36
+num_epochs = 50
 optimizer = optim.SGD(solo_head.parameters(), lr=0.01/16*batch_size, momentum=0.9, weight_decay=0.0001)
 scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[27,33], gamma=0.1)
 train_cate_losses=[]
@@ -116,6 +116,8 @@ for epoch in range(num_epochs):
         running_cate_loss += cate_loss.item()
         running_mask_loss += mask_loss.item()
         running_total_loss += total_loss.item()
+        if np.isnan(running_total_loss):
+            raise RuntimeError("[ERROR] NaN encountered at iter: {}".format(iter))
         if iter % 100 == 99:
             log_cate_loss = running_cate_loss / 100.0
             log_mask_loss = running_mask_loss / 100.0

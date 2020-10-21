@@ -18,15 +18,17 @@ masks_path = '/workspace/data/hw3_mycocodata_mask_comp_zlib.h5'
 labels_path = "/workspace/data/hw3_mycocodata_labels_comp_zlib.npy"
 bboxes_path = "/workspace/data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
-eval_epoch = 35
-VISUALIZATION = False
+eval_epoch = 49
+VISUALIZATION = True
 batch_size = 2
-cate_thresh = 0.2
+cate_thresh = 0.33
+
+print("[INFO] Parameter VISUALIZATION: {}".format(VISUALIZATION))
 
 # set up output dir (for plotGT)
 paths = [imgs_path, masks_path, labels_path, bboxes_path]
 # load the data into data.Dataset
-dataset = BuildDataset(paths)
+dataset = BuildDataset(paths, augmentation=False)
 
 full_size = len(dataset)
 train_size = int(full_size * 0.8)
@@ -56,8 +58,10 @@ resnet50_fpn.eval()             # set to eval mode
 
 # load checkpoint
 print("[INFO] eval epoch: {}".format(eval_epoch))
-#checkpoint = torch.load("./train_check_point/solo_epoch_{}".format(eval_epoch))   #gaidong 2
-checkpoint = torch.load("./solo_epoch_{}".format(eval_epoch))
+checkpoint_file = "./train_check_point/solo_epoch_{}".format(eval_epoch)
+checkpoint = torch.load(checkpoint_file)   #gaidong 2
+print("[INFO] Loaded from checkpoint: {}".format(checkpoint_file))
+# checkpoint = torch.load("./solo_epoch_{}".format(eval_epoch))
 solo_head.load_state_dict(checkpoint['model_state_dict'])
 
 

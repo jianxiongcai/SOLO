@@ -37,19 +37,16 @@ class BuildDataset(torch.utils.data.Dataset):
         # Add a 0 to the head. offset[0] = 0
         self.mask_offset = np.concatenate([np.array([0]), self.mask_offset])
 
-
     # output:
-        # transed_img
-        # label
-        # transed_mask
-        # transed_bbox
-    def __getitem__(self, index_raw):
-        # index_raw in (0, )
-        index = index_raw % self.images_h5['data'].shape[0]
+    # transed_img
+    # label
+    # transed_mask
+    # transed_bbox
+    # Note: For data augmentation, number of items is 2 * N_images
+    def __getitem__(self, index):
         # images
-        img_np = self.images_h5['data'][index] / 255.0                     # (3, 300, 400)
+        img_np = self.images_h5['data'][index] / 255.0  # (3, 300, 400)
         img = torch.tensor(img_np, dtype=torch.float)
-
 
         # annotation
         # label: start counting from 1
@@ -69,17 +66,17 @@ class BuildDataset(torch.utils.data.Dataset):
         bbox_np = self.bboxes_all[index]
         bbox = torch.tensor(bbox_np, dtype=torch.float)
         transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
-        if (self.augmentation) and (index >= index_raw % self.images_h5['data'].shape[0]):
+        if self.augmentation and (np.random.rand(1).item() > 0.5):
             # perform horizontally flipping (data augmentation)
+            assert transed_img.ndim == 3
+            assert transed_mask.ndim == 3
             transed_img = torch.flip(transed_img, dims=[2])
             transed_mask = torch.flip(transed_mask, dims=[2])
             # bbox transform
-            transed_bbox[:, 0] = 1 - transed_bbox[:, 0]
-            transed_bbox[:, 2] = 1 - transed_bbox[:, 2]
-            # tmp = transed_bbox[:, 0].clone()
-            # transed_bbox[:, 0] = transed_bbox[:, 2]
-            # transed_bbox[:, 2] = tmp
-            transed_bbox[:, 0], transed_bbox[:, 2] = transed_bbox[:, 2].clone(), transed_bbox[:, 0].clone()
+            transed_bbox_new = transed_bbox.clone()
+            transed_bbox_new[:, 0] = 1 - transed_bbox[:, 2]
+            transed_bbox_new[:, 2] = 1 - transed_bbox[:, 0]
+            transed_bbox = transed_bbox_new
 
             assert torch.all(transed_bbox[:, 0] < transed_bbox[:, 2])
 
