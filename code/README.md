@@ -8,12 +8,19 @@ ln -s LOCAL_DATASET_DIR /workspace/data
 ```
 
 ### Running instructions
-For part A code, simply run following instructions:
+For part A code, refer to the part A code. (some function API has minor changes.)
+For part B code, simply run following instructions:
+- For training, this would save checkpoints to folder 'train_check_point'
 ```bash
-cd CODE_DIRECTORY
-python dataset.py
-python solo_head.py
+python main_train.py
 ```
+- For inference and testing
+```bash
+python main_infer.py
+```
+
+### Data augmentation
+In the training, we implemented data augmentation with horizontal flipping. i.e. Each image has 0.5 chances to flip and its annotations (masks + bboxes) will be changed accordingly.
 
 ### Expected Outputs
 The expected outputs will be saving under directory 'testfig' and 'plotgt_results', in the current working directory.
